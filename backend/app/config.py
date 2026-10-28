@@ -16,9 +16,10 @@ class Settings(BaseSettings):
     database_url: str
 
     # OpenAI-compatible LLM API
-    llm_base_url: str = ""
-    llm_api_key: str = ""
-    llm_model: str = ""
+    ai_base_url: str
+    ai_api_key: str
+    ai_model: str
+    ai_provider: str = "openai"
 
 
 settings = Settings()

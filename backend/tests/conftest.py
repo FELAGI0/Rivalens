@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 from collections.abc import Generator
 from pathlib import Path
 
@@ -14,6 +15,15 @@ POSTGRES_IMAGE = "postgres:16-alpine"
 
 # backend/ — the directory containing alembic.ini
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+# app.config creates Settings() at import time; tests need env vars set
+# before any app module is imported. Values are placeholders — real
+# DATABASE_URL comes from the container, LLM calls are mocked in tests.
+os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://placeholder@localhost:5432/placeholder")
+os.environ.setdefault("AI_BASE_URL", "https://llm.example.com/v1")
+os.environ.setdefault("AI_API_KEY", "sk-test")
+os.environ.setdefault("AI_MODEL", "test-model")
+os.environ.setdefault("AI_PROVIDER", "openai")
 
 
 @pytest.fixture(scope="session")
@@ -30,7 +40,7 @@ def database_url() -> Generator[str, None, None]:
 def migrated_engine(database_url: str):
     """Engine against the container with all migrations applied via alembic."""
     subprocess.run(
-        ["alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         check=True,
         cwd=BACKEND_DIR,
         env={**os.environ, "DATABASE_URL": database_url},

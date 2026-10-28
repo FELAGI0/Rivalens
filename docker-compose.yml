@@ -24,9 +24,10 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://rivalens:change-me@postgres:5432/rivalens}
-      LLM_BASE_URL: ${LLM_BASE_URL}
-      LLM_API_KEY: ${LLM_API_KEY}
-      LLM_MODEL: ${LLM_MODEL}
+      AI_BASE_URL: ${AI_BASE_URL}
+      AI_API_KEY: ${AI_API_KEY}
+      AI_MODEL: ${AI_MODEL}
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
     depends_on:
       postgres:
         condition: service_healthy

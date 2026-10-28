@@ -27,3 +27,14 @@
 ## Инфраструктура
 - VPS: 2 GB RAM / 1 CPU — тяжёлые инструменты (Playwright и т.п.) не использовать.
 - LLM — только через OpenAI-совместимый API (`base_url` / `key` / `model` из env).
+
+## Architecture decisions
+- HTTP: httpx.AsyncClient, timeout=10s, UA "Rivalens/0.1"
+- HTML parser: beautifulsoup4 + lxml
+- Entities: {title, headings (h1/h2 text), links ({href,text}), prices (regex \d[\d\s]*[₽$€])}
+- Static HTML only, no Playwright (VPS 2GB)
+- LLM: openai SDK AsyncOpenAI(base_url=AI_BASE_URL, api_key=AI_API_KEY, timeout=60), model=AI_MODEL, provider=AI_PROVIDER
+- Diff: compare entities of two latest snapshots, changes = list of {kind, payload}
+- Insights: one per competitor per run, period = [min(prev), max(new)]
+- On LLM error: save snapshots + changes, skip insight, log, do not fail
+- Async all the way (httpx + AsyncOpenAI), DB session sync (SQLAlchemy sync)
