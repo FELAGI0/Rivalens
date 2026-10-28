@@ -38,3 +38,9 @@
 - Insights: one per competitor per run, period = [min(prev), max(new)]
 - On LLM error: save snapshots + changes, skip insight, log, do not fail
 - Async all the way (httpx + AsyncOpenAI), DB session sync (SQLAlchemy sync)
+- No auth in CP3 (single implicit user = first row in users)
+- API prefix /api/v1
+- Frontend fetch through lib/api.ts wrapper, not raw fetch in components
+- Manual "Check now" is synchronous (async endpoint, awaits pipeline)
+- Tailwind CSS v4 for frontend styling (PostCSS plugin, no tailwind.config, no autoprefixer)
+- Frontend talks to backend via NEXT_PUBLIC_API_URL
