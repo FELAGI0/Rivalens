@@ -50,6 +50,12 @@
 - Migrations applied on backend container start via
   `python -m alembic upgrade head && uvicorn ...`
   (idempotent; replace with one-shot migrate service later if needed)
+- APScheduler AsyncIOScheduler, запуск в FastAPI lifespan
+- Интервал из CHECK_INTERVAL_HOURS (default 6), env
+- Первый прогон через 1 минуту после старта, потом каждые N часов
+- run_all_competitors() обходит всех active конкурентов, для каждого
+  run_competitor_check, ошибки по одному не роняют остальных
+- Ручной триггер: POST /api/v1/admin/run-all
 
 ## Lock file policy
 - frontend/package-lock.json генерируется ТОЛЬКО в Linux-контейнере

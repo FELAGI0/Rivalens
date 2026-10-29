@@ -21,5 +21,8 @@ class Settings(BaseSettings):
     ai_model: str
     ai_provider: str = "openai"
 
+    # Scheduled competitor checks
+    check_interval_hours: int = 6
+
 
 settings = Settings()
