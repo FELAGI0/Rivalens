@@ -8,7 +8,7 @@ from app.models import Change, Competitor, Insight, Page, PageKind, PageSnapshot
 
 
 def _make_user(db, email="user@example.com") -> User:
-    user = User(email=email)
+    user = User(email=email, password_hash="not-a-real-hash")
     db.add(user)
     db.flush()
     return user

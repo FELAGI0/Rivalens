@@ -1,4 +1,4 @@
-"""REST API for competitors: CRUD + manual check + insights/changes."""
+"""REST API for competitors: per-user CRUD + manual check + insights/changes."""
 
 from uuid import UUID
 
@@ -15,38 +15,30 @@ from app.api.schemas import (
     InsightOut,
     PageOut,
 )
+from app.auth.deps import get_current_user
 from app.db.session import get_session
 from app.models import Change, Competitor, Insight, Page, PageKind, User
 from app.pipeline import run_competitor_check
 
 router = APIRouter(prefix="/competitors")
 
-DEFAULT_USER_EMAIL = "demo@rivalens.local"
 
-
-def get_default_user(db: Session) -> User:
-    """Single implicit user (CP3): the first row, created on demand."""
-    user = db.scalars(select(User).limit(1)).first()
-    if user is None:
-        user = User(email=DEFAULT_USER_EMAIL, plan="free")
-        db.add(user)
-        db.commit()
-    return user
-
-
-def _get_competitor_or_404(db: Session, competitor_id: UUID) -> Competitor:
+def _own_competitor_or_404(
+    db: Session, competitor_id: UUID, user: User
+) -> Competitor:
     competitor = db.get(Competitor, competitor_id)
-    if competitor is None:
+    if competitor is None or competitor.user_id != user.id:
+        # 404 (not 403) to not leak other users' competitor ids
         raise HTTPException(status_code=404, detail="competitor not found")
     return competitor
 
 
 @router.post("", response_model=CompetitorOut, status_code=201)
 def create_competitor(
-    payload: CompetitorCreate, db: Session = Depends(get_session)
+    payload: CompetitorCreate,
+    db: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> Competitor:
-    user = get_default_user(db)
-
     existing = db.scalars(
         select(Competitor).where(
             Competitor.user_id == user.id, Competitor.name == payload.name
@@ -63,12 +55,13 @@ def create_competitor(
     if not db.scalars(
         select(Page).where(Page.competitor_id == competitor.id)
     ).first():
-        page = Page(
-            competitor_id=competitor.id,
-            url=payload.url,
-            kind=PageKind.LANDING,
+        db.add(
+            Page(
+                competitor_id=competitor.id,
+                url=payload.url,
+                kind=PageKind.LANDING,
+            )
         )
-        db.add(page)
 
     db.commit()
     db.refresh(competitor)
@@ -76,19 +69,27 @@ def create_competitor(
 
 
 @router.get("", response_model=list[CompetitorOut])
-def list_competitors(db: Session = Depends(get_session)) -> list[Competitor]:
-    return list(db.scalars(select(Competitor)).all())
+def list_competitors(
+    db: Session = Depends(get_session), user: User = Depends(get_current_user)
+) -> list[Competitor]:
+    return list(
+        db.scalars(select(Competitor).where(Competitor.user_id == user.id)).all()
+    )
 
 
 @router.get("/{competitor_id}", response_model=CompetitorDetail)
 def get_competitor(
-    competitor_id: UUID, db: Session = Depends(get_session)
+    competitor_id: UUID,
+    db: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> CompetitorDetail:
-    competitor = _get_competitor_or_404(db, competitor_id)
+    competitor = _own_competitor_or_404(db, competitor_id, user)
 
     pages = list(
         db.scalars(
-            select(Page).where(Page.competitor_id == competitor_id).order_by(Page.created_at)
+            select(Page)
+            .where(Page.competitor_id == competitor_id)
+            .order_by(Page.created_at)
         ).all()
     )
     insights = list(
@@ -107,9 +108,11 @@ def get_competitor(
 
 @router.post("/{competitor_id}/check", response_model=CheckResult)
 async def check_competitor(
-    competitor_id: UUID, db: Session = Depends(get_session)
+    competitor_id: UUID,
+    db: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> dict:
-    _get_competitor_or_404(db, competitor_id)
+    _own_competitor_or_404(db, competitor_id, user)
 
     result = await run_competitor_check(competitor_id, db)
     return result
@@ -117,9 +120,11 @@ async def check_competitor(
 
 @router.get("/{competitor_id}/insights", response_model=list[InsightOut])
 def list_insights(
-    competitor_id: UUID, db: Session = Depends(get_session)
+    competitor_id: UUID,
+    db: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> list[Insight]:
-    _get_competitor_or_404(db, competitor_id)
+    _own_competitor_or_404(db, competitor_id, user)
     return list(
         db.scalars(
             select(Insight)
@@ -134,8 +139,9 @@ def list_changes(
     competitor_id: UUID,
     limit: int = 50,
     db: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> list[Change]:
-    _get_competitor_or_404(db, competitor_id)
+    _own_competitor_or_404(db, competitor_id, user)
     return list(
         db.scalars(
             select(Change)

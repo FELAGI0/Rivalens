@@ -18,6 +18,7 @@ class User(Base):
         default=uuid.uuid4,
     )
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
     plan: Mapped[UserPlan] = mapped_column(
         String,
         nullable=False,

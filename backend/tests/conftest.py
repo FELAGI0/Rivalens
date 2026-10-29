@@ -24,6 +24,7 @@ os.environ.setdefault("AI_BASE_URL", "https://llm.example.com/v1")
 os.environ.setdefault("AI_API_KEY", "sk-test")
 os.environ.setdefault("AI_MODEL", "test-model")
 os.environ.setdefault("AI_PROVIDER", "openai")
+os.environ.setdefault("JWT_SECRET", "test-secret")
 
 
 @pytest.fixture(scope="session")
@@ -62,3 +63,27 @@ def db(migrated_engine) -> Generator[Session, None, None]:
     session.close()
     transaction.rollback()
     connection.close()
+
+
+# --- auth helpers shared by API tests ---
+
+TEST_PASSWORD = "test-password-123"
+
+
+def make_user(db, email: str, password: str = TEST_PASSWORD):
+    """Insert a user with a real password hash; commit so it is visible
+    to sessions outside the test transaction (auth endpoints)."""
+    from app.auth.security import hash_password
+    from app.models import User
+
+    user = User(email=email, password_hash=hash_password(password))
+    db.add(user)
+    db.commit()
+    return user
+
+
+def auth_header(db, user) -> str:
+    """Authorization header value for the given user."""
+    from app.auth.security import create_access_token
+
+    return f"Bearer {create_access_token(str(user.id))}"

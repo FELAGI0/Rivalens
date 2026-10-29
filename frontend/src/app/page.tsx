@@ -3,9 +3,18 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { createCompetitor, listCompetitors, type Competitor } from "@/lib/api";
+import { AuthGate } from "@/components/AuthGate";
+import { Header } from "@/components/Header";
+import {
+  createCompetitor,
+  listCompetitors,
+  UnauthorizedError,
+  type Competitor,
+} from "@/lib/api";
+import { useRouter } from "next/navigation";
 
-export default function Home() {
+function HomeContent() {
+  const router = useRouter();
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -17,12 +26,17 @@ export default function Home() {
       setCompetitors(await listCompetitors());
       setError(null);
     } catch (e) {
+      if (e instanceof UnauthorizedError) {
+        router.replace("/login");
+        return;
+      }
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   useEffect(() => {
     void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleAdd(event: React.FormEvent) {
@@ -36,6 +50,10 @@ export default function Home() {
       await refresh();
       setError(null);
     } catch (e) {
+      if (e instanceof UnauthorizedError) {
+        router.replace("/login");
+        return;
+      }
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -44,7 +62,9 @@ export default function Home() {
 
   return (
     <main className="mx-auto max-w-3xl p-6">
-      <h1 className="mb-6 text-3xl font-bold">Rivalens</h1>
+      <Header />
+
+      <h1 className="mb-6 text-3xl font-bold">Your competitors</h1>
 
       <form onSubmit={handleAdd} className="mb-6 flex flex-wrap gap-2">
         <input
@@ -97,5 +117,13 @@ export default function Home() {
         <p className="text-gray-500">No competitors yet.</p>
       )}
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <AuthGate>
+      <HomeContent />
+    </AuthGate>
   );
 }

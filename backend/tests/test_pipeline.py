@@ -53,7 +53,7 @@ class _FakeResponse:
 
 
 def _make_competitor_with_page(db) -> Page:
-    user = User(email="pipeline@example.com")
+    user = User(email="pipeline@example.com", password_hash="not-a-real-hash")
     db.add(user)
     db.flush()
     competitor = Competitor(

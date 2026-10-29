@@ -1,12 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
-import { checkCompetitor, getCompetitor, type CompetitorDetail } from "@/lib/api";
+import { AuthGate } from "@/components/AuthGate";
+import { Header } from "@/components/Header";
+import {
+  checkCompetitor,
+  getCompetitor,
+  UnauthorizedError,
+  type CompetitorDetail,
+} from "@/lib/api";
 
-export default function CompetitorPage() {
+function CompetitorPageContent() {
+  const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = params?.id ?? "";
 
@@ -20,9 +28,13 @@ export default function CompetitorPage() {
       setDetail(await getCompetitor(id));
       setError(null);
     } catch (e) {
+      if (e instanceof UnauthorizedError) {
+        router.replace("/login");
+        return;
+      }
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [id]);
+  }, [id, router]);
 
   useEffect(() => {
     void refresh();
@@ -35,6 +47,10 @@ export default function CompetitorPage() {
       await refresh();
       setError(null);
     } catch (e) {
+      if (e instanceof UnauthorizedError) {
+        router.replace("/login");
+        return;
+      }
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -43,8 +59,10 @@ export default function CompetitorPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-6">
+      <Header />
+
       <Link href="/" className="mb-4 inline-block text-blue-600 underline">
-        &larr; Back
+        &larr; Back to competitors
       </Link>
 
       {error && (
@@ -57,7 +75,9 @@ export default function CompetitorPage() {
 
       {detail && (
         <>
-          <h1 className="mb-6 text-3xl font-bold">{detail.competitor.name}</h1>
+          <h1 className="mb-6 text-3xl font-bold">
+            {detail.competitor.name}
+          </h1>
 
           <section className="mb-6 rounded border p-4">
             <div className="mb-2 flex items-center justify-between">
@@ -104,5 +124,13 @@ export default function CompetitorPage() {
         </>
       )}
     </main>
+  );
+}
+
+export default function CompetitorPage() {
+  return (
+    <AuthGate>
+      <CompetitorPageContent />
+    </AuthGate>
   );
 }

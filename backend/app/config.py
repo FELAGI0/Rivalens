@@ -24,5 +24,10 @@ class Settings(BaseSettings):
     # Scheduled competitor checks
     check_interval_hours: int = 6
 
+    # JWT auth
+    jwt_secret: str
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 7 * 24 * 60
+
 
 settings = Settings()

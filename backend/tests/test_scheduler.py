@@ -49,7 +49,10 @@ def _mock_llm_success(monkeypatch, text: str = "test summary") -> None:
 def _make_competitor(db, name: str, url: str, active: bool = True) -> Competitor:
     user = db.scalars(select(User).limit(1)).first()
     if user is None:
-        user = User(email=f"{name.lower()}@example.com")
+        user = User(
+            email=f"{name.lower()}@example.com",
+            password_hash="not-a-real-hash",
+        )
         db.add(user)
         db.flush()
     comp = Competitor(user_id=user.id, name=name, url=url, active=active)

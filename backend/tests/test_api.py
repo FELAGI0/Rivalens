@@ -59,6 +59,21 @@ async def client(db):
     app.dependency_overrides.pop(get_session, None)
 
 
+@pytest.fixture
+def auth(client, db):
+    """A registered user + Authorization header, applied to the client."""
+    from tests.conftest import TEST_PASSWORD, make_user
+
+    user = make_user(db, "api-test@example.com", TEST_PASSWORD)
+    client.headers["Authorization"] = f"Bearer-test-not-needed"
+    # Token created directly (not via /login) to keep tests hermetic.
+    from app.auth.security import create_access_token
+
+    token = create_access_token(str(user.id))
+    client.headers["Authorization"] = f"Bearer {token}"
+    return user
+
+
 def _create_competitor(client) -> httpx.Response:
     return client.post(
         "/api/v1/competitors",
@@ -66,7 +81,7 @@ def _create_competitor(client) -> httpx.Response:
     )
 
 
-async def test_create_competitor(client, db) -> None:
+async def test_create_competitor(client, db, auth) -> None:
     response = await _create_competitor(client)
     assert response.status_code == 201
 
@@ -82,7 +97,7 @@ async def test_create_competitor(client, db) -> None:
     assert detail["pages"][0]["url"] == PAGE_URL
 
 
-async def test_list_competitors(client, db) -> None:
+async def test_list_competitors(client, db, auth) -> None:
     await _create_competitor(client)
     await client.post(
         "/api/v1/competitors",
@@ -94,13 +109,13 @@ async def test_list_competitors(client, db) -> None:
     assert len(response.json()) == 2
 
 
-async def test_get_competitor_detail_404(client, db) -> None:
+async def test_get_competitor_detail_404(client, db, auth) -> None:
     response = await client.get("/api/v1/competitors/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
 
 
 @respx.mock
-async def test_check_endpoint(client, db, monkeypatch) -> None:
+async def test_check_endpoint(client, db, auth, monkeypatch) -> None:
     _mock_llm_success(monkeypatch)
     created = (await _create_competitor(client)).json()
 
@@ -118,7 +133,7 @@ async def test_check_endpoint(client, db, monkeypatch) -> None:
 
 
 @respx.mock
-async def test_insights_endpoint(client, db, monkeypatch) -> None:
+async def test_insights_endpoint(client, db, auth, monkeypatch) -> None:
     _mock_llm_success(monkeypatch)
     created = (await _create_competitor(client)).json()
 
