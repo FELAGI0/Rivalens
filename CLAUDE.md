@@ -44,3 +44,11 @@
 - Manual "Check now" is synchronous (async endpoint, awaits pipeline)
 - Tailwind CSS v4 for frontend styling (PostCSS plugin, no tailwind.config, no autoprefixer)
 - Frontend talks to backend via NEXT_PUBLIC_API_URL
+
+## Lock file policy
+- frontend/package-lock.json генерируется ТОЛЬКО в Linux-контейнере
+  (node:22-alpine), никогда на Windows
+- При обновлении зависимостей: docker run --rm -v ${PWD}:/app -w /app
+  node:22-alpine npm install
+- optionalDependencies содержат linux-musl бинарники явно — чтобы lock
+  был валиден даже если случайно сгенерирован на Windows
