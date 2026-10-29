@@ -44,6 +44,9 @@
 - Manual "Check now" is synchronous (async endpoint, awaits pipeline)
 - Tailwind CSS v4 for frontend styling (PostCSS plugin, no tailwind.config, no autoprefixer)
 - Frontend talks to backend via NEXT_PUBLIC_API_URL
+- Backend host port 8001 (8000 taken by BioPhysLab)
+- Frontend host port 3001 (3000 taken by BioPhysLab)
+- NEXT_PUBLIC_API_URL -> localhost:8001
 
 ## Lock file policy
 - frontend/package-lock.json генерируется ТОЛЬКО в Linux-контейнере
