@@ -47,6 +47,9 @@
 - Backend host port 8001 (8000 taken by BioPhysLab)
 - Frontend host port 3001 (3000 taken by BioPhysLab)
 - NEXT_PUBLIC_API_URL -> localhost:8001
+- Migrations applied on backend container start via
+  `python -m alembic upgrade head && uvicorn ...`
+  (idempotent; replace with one-shot migrate service later if needed)
 
 ## Lock file policy
 - frontend/package-lock.json генерируется ТОЛЬКО в Linux-контейнере
