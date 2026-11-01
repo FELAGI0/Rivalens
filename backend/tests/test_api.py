@@ -2,7 +2,6 @@
 
 import httpx
 import pytest
-import respx
 
 from app.db.session import get_session
 from app.main import app
@@ -117,32 +116,34 @@ async def test_get_competitor_detail_404(client, db, auth) -> None:
     assert response.status_code == 404
 
 
-@respx.mock
-async def test_check_endpoint(client, db, auth, monkeypatch) -> None:
+async def test_check_endpoint(
+    client, db, auth, monkeypatch, fake_fetch
+) -> None:
     _mock_llm_success(monkeypatch)
     created = (await _create_competitor(client)).json()
 
-    respx.get(PAGE_URL).mock(return_value=httpx.Response(200, text=HTML_V1))
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
     response = await client.post(f"/api/v1/competitors/{created['id']}/check")
     assert response.status_code == 200
     assert response.json()["snapshots_created"] >= 1
 
     # Second run with changed content -> changes + insight.
-    respx.get(PAGE_URL).mock(return_value=httpx.Response(200, text=HTML_V2))
+    fake_fetch.route(PAGE_URL, html=HTML_V2)
     response = await client.post(f"/api/v1/competitors/{created['id']}/check")
     body = response.json()
     assert body["snapshots_created"] >= 1
     assert body["changes_created"] >= 1
 
 
-@respx.mock
-async def test_insights_endpoint(client, db, auth, monkeypatch) -> None:
+async def test_insights_endpoint(
+    client, db, auth, monkeypatch, fake_fetch
+) -> None:
     _mock_llm_success(monkeypatch)
     created = (await _create_competitor(client)).json()
 
-    respx.get(PAGE_URL).mock(return_value=httpx.Response(200, text=HTML_V1))
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
     await client.post(f"/api/v1/competitors/{created['id']}/check")
-    respx.get(PAGE_URL).mock(return_value=httpx.Response(200, text=HTML_V2))
+    fake_fetch.route(PAGE_URL, html=HTML_V2)
     await client.post(f"/api/v1/competitors/{created['id']}/check")
 
     response = await client.get(f"/api/v1/competitors/{created['id']}/insights")

@@ -65,6 +65,89 @@ def db(migrated_engine) -> Generator[Session, None, None]:
     connection.close()
 
 
+# --- fetch transport mock ---
+# fetch_html's primary path is curl_cffi, which respx cannot intercept.
+# Tests that need to control what fetch_html returns monkeypatch the
+# transport hook in app.fetcher.client instead. This fixture applies a
+# no-op default so an unmocked URL fails loudly instead of hitting the
+# real network.
+
+@pytest.fixture
+def fake_fetch(monkeypatch):
+    """Patch app.fetcher.client.fetch_html with a controllable fake.
+
+    Usage:
+        fake_fetch.route("https://x/", html="<html>…</html>")
+        fake_fetch.route("https://y/", status=500)      # HTTP error
+        fake_fetch.route("https://z/", error=httpx.ConnectError("…"))
+        fake_fetch.route("https://c/", challenge=True)  # CF stub -> playwright
+        fake_fetch.playwright_html = "<html>rendered</html>"  # what PW returns
+
+    Unrouted URLs raise AssertionError (no accidental real network).
+    """
+    import httpx
+
+    import app.fetcher.client as client_mod
+
+    routes: dict = {}
+
+    class _FakeFetch:
+        playwright_html: str | None = None
+        playwright_calls: list[str] = []
+        calls: list[str] = []
+
+        def route(
+            self,
+            url: str,
+            html: str = "",
+            status: int = 200,
+            error: Exception | None = None,
+            challenge: bool = False,
+        ) -> None:
+            routes[url] = {
+                "html": html,
+                "status": status,
+                "error": error,
+                "challenge": challenge,
+            }
+
+    fake = _FakeFetch()
+
+    async def fake_curl_cffi(url: str) -> str:
+        fake.calls.append(url)
+        route = routes.get(url)
+        if route is None:
+            raise AssertionError(
+                f"fetch_html called with unrouted URL {url!r} — tests must "
+                "not hit the real network"
+            )
+        if route["error"] is not None:
+            raise route["error"]
+        if route["status"] >= 400:
+            raise httpx.HTTPStatusError(
+                f"HTTP {route['status']}",
+                request=httpx.Request("GET", url),
+                response=httpx.Response(route["status"]),
+            )
+        if route["challenge"]:
+            raise client_mod.ChallengeDetected(url)
+        return route["html"]
+
+    async def fake_playwright(url: str) -> str:
+        fake.playwright_calls.append(url)
+        if fake.playwright_html is None:
+            raise RuntimeError("playwright fallback not expected in this test")
+        return fake.playwright_html
+
+    # Patch the transports, not fetch_html itself: the real fetch_html
+    # orchestration (challenge -> fallback) is exactly what these tests
+    # exercise.
+    monkeypatch.setattr(client_mod, "_curl_cffi_fetch", fake_curl_cffi)
+    monkeypatch.setattr(client_mod, "_playwright_fetch", fake_playwright)
+
+    return fake
+
+
 # --- auth helpers shared by API tests ---
 
 TEST_PASSWORD = "test-password-123"

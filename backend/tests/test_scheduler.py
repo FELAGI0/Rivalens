@@ -79,8 +79,7 @@ def session_factory_override(db, monkeypatch):
     return factory
 
 
-@respx.mock
-async def test_run_all_empty(session_factory_override) -> None:
+async def test_run_all_empty(session_factory_override, fake_fetch) -> None:
     result = await run_all_competitors()
 
     assert result["checked"] == 0
@@ -88,14 +87,15 @@ async def test_run_all_empty(session_factory_override) -> None:
     assert result["results"] == []
 
 
-@respx.mock
-async def test_run_all_two_competitors(db, session_factory_override, monkeypatch) -> None:
+async def test_run_all_two_competitors(
+    db, session_factory_override, monkeypatch, fake_fetch
+) -> None:
     _mock_llm_success(monkeypatch)
     comp_a = _make_competitor(db, "Comp A", URL_A)
     comp_b = _make_competitor(db, "Comp B", URL_B)
 
-    respx.get(URL_A).mock(return_value=httpx.Response(200, text=HTML_A))
-    respx.get(URL_B).mock(return_value=httpx.Response(200, text=HTML_B))
+    fake_fetch.route(URL_A, html=HTML_A)
+    fake_fetch.route(URL_B, html=HTML_B)
 
     result = await run_all_competitors()
 
@@ -112,14 +112,15 @@ async def test_run_all_two_competitors(db, session_factory_override, monkeypatch
     assert checked_ids == {str(comp_a.id), str(comp_b.id)}
 
 
-@respx.mock
-async def test_run_all_one_fails(db, session_factory_override, monkeypatch) -> None:
+async def test_run_all_one_fails(
+    db, session_factory_override, monkeypatch, fake_fetch
+) -> None:
     _mock_llm_success(monkeypatch)
     comp_a = _make_competitor(db, "Comp A", URL_A)
     comp_b = _make_competitor(db, "Comp B", URL_B)
 
-    respx.get(URL_A).mock(return_value=httpx.Response(500, text="boom"))
-    respx.get(URL_B).mock(return_value=httpx.Response(200, text=HTML_B))
+    fake_fetch.route(URL_A, html="", status=500)
+    fake_fetch.route(URL_B, html=HTML_B)
 
     result = await run_all_competitors()
 
@@ -134,15 +135,16 @@ async def test_run_all_one_fails(db, session_factory_override, monkeypatch) -> N
     assert by_id[str(comp_b.id)]["result"]["snapshots_created"] == 1
 
 
-@respx.mock
-async def test_run_all_inactive_skipped(db, session_factory_override, monkeypatch) -> None:
+async def test_run_all_inactive_skipped(
+    db, session_factory_override, monkeypatch, fake_fetch
+) -> None:
     _mock_llm_success(monkeypatch)
     comp_active = _make_competitor(db, "Comp Active", URL_A)
     _make_competitor(db, "Comp Inactive", URL_C, active=False)
 
-    respx.get(URL_A).mock(return_value=httpx.Response(200, text=HTML_A))
-    # No mock for URL_C: if the inactive competitor were fetched, respx
-    # would raise "all attempts to mock failed" and the test would fail.
+    fake_fetch.route(URL_A, html=HTML_A)
+    # No route for URL_C: if the inactive competitor were fetched,
+    # fake_fetch would raise on the unrouted URL and the test would fail.
 
     result = await run_all_competitors()
 
