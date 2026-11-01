@@ -3,33 +3,40 @@
 Сервис мониторинга сайтов конкурентов с AI-суммаризацией изменений.
 Домен: [rivalens.ru](https://rivalens.ru)
 
+Каждые N часов сервис скачивает страницы конкурентов, сравнивает их с
+предыдущими снапшотами (заголовки, ссылки, цены) и при изменениях
+генерирует краткую сводку на русском через LLM.
+
 ## Стек
 
-- **Backend**: Python 3.11, FastAPI, Postgres
-- **Frontend**: Next.js (App Router, TypeScript)
-- **LLM**: OpenAI-совместимый API (base_url / key / model из env)
-- **Infra**: Docker Compose
-- **VPS**: 2 GB RAM / 1 CPU — тяжёлые инструменты (Playwright и т.п.) не используются
+- **Backend**: Python 3.11, FastAPI, SQLAlchemy (sync), Alembic, Postgres 16
+- **Fetcher**: httpx + BeautifulSoup (lxml), без Playwright (VPS 2 GB RAM)
+- **Scheduler**: APScheduler (AsyncIOScheduler в FastAPI lifespan)
+- **LLM**: OpenAI-совместимый API (`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL`)
+- **Frontend**: Next.js 15 (App Router, TypeScript), Tailwind CSS v4
+- **Infra**: Docker Compose, nginx (прод)
 
-## Запуск
+## Возможности
 
-1. Скопировать env-файл и заполнить значения:
+- JWT-аутентификация (register / login / me)
+- CRUD конкурентов, автопривязка landing-страницы
+- Ручной «Check now» и периодические проверки по расписанию
+- Diff сущностей (заголовки / ссылки / цены) между снапшотами
+- AI-insight по изменениям (при ошибке LLM пайплайн не падает)
+- Тарифы: free = 1 конкурент, pro = 10, business = без лимита
+  (переключение без оплаты, MVP)
 
-   ```bash
-   cp .env.example .env
-   ```
+## Быстрый старт (Docker)
 
-2. Поднять всё через Docker:
+```bash
+cp .env.example .env          # заполнить AI_*, JWT_SECRET
+docker compose up --build
+```
 
-   ```bash
-   docker compose up --build
-   ```
+- Frontend: http://localhost:3001
+- Backend health: http://localhost:8001/health
 
-3. Проверить:
-   - Backend: http://localhost:8000/health → `{"status": "ok"}`
-   - Frontend: http://localhost:3000
-
-### Локальная разработка (без Docker)
+## Локальная разработка (без Docker)
 
 **Backend:**
 
@@ -38,7 +45,7 @@ cd backend
 python -m venv .venv
 . .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 8001
 pytest
 ```
 
@@ -50,116 +57,60 @@ npm install
 npm run dev
 ```
 
-## Текущее состояние (CP0)
+Frontend ходит в backend через `NEXT_PUBLIC_API_URL`
+(см. `frontend/src/lib/api.ts`).
 
-Только каркас: health-check на backend, заглавная страница на frontend,
-docker-compose с postgres + backend + frontend. Без фич.
+## Тесты и проверки
 
----
+- Backend: `pytest` (из `backend/`) — нужен локальный Docker
+  (тесты поднимают throwaway Postgres через testcontainers)
+- Frontend: `npm run build` (из `frontend/`)
+- `package-lock.json` генерируется только в Linux-контейнере — см.
+  «Lock file policy» в CLAUDE.md
 
-# План на следующие шаги (не реализовано)
+## Деплой на VPS
 
-## Архитектура
+Пошаговая инструкция: [deploy/README.md](deploy/README.md).
 
-```
-                        ┌─────────────┐
-        cron / worker → │  Scheduler  │ → HTTP fetch (httpx) конкурентов
-                        └──────┬──────┘
-                               │
-                        ┌──────▼──────┐
-                        │  Diff Engine│ → сравнение версий контента
-                        └──────┬──────┘
-                               │ изменение
-                        ┌──────▼──────┐
-     OpenAI-совместимый ←│   Summarizer│ → краткая сводка на русском
-              API        └──────┬──────┘
-                               │
-                        ┌──────▼──────┐
-        email / web UI ←│ Notifications│
-                        └─────────────┘
-```
+Кратко: `cp .env.prod.example .env.prod` → заполнить секреты →
+`docker compose -f docker-compose.prod.yml up -d --build` → DNS →
+certbot → включить HTTPS-блок в `deploy/nginx.conf`.
 
-- **API-слой** (FastAPI): CRUD конкурентов/страниц, просмотр истории
-  изменений и сводок, управление расписанием проверок.
-- **Worker**: фоновый процесс (или задача в том же процессе через APScheduler
-  / простейший event-loop) — скачивает страницы конкурентов по расписанию,
-  сравнивает с предыдущей версией, при изменении сохраняет diff и дергает
-  Summarizer.
-- **Fetcher**: только `httpx` (без Playwright — ограничение VPS).
-- **Summarizer**: тонкий клиент OpenAI-совместимого API, промпт —
-  «что изменилось у конкурента, по-русски, коротко».
-- **Notifications** (позже): email (SMTP) и UI-уведомления.
+## Переменные окружения
 
-## Схема БД (предложение)
+| Переменная | Назначение | Пример |
+|---|---|---|
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | учётные данные БД | `rivalens` |
+| `DATABASE_URL` | строка подключения (SQLAlchemy) | `postgresql+psycopg://rivalens:...@postgres:5432/rivalens` |
+| `JWT_SECRET` | секрет для подписи JWT (`openssl rand -hex 32`) | — |
+| `AI_BASE_URL` | base_url OpenAI-совместимого API | `http://host:4100/v1` |
+| `AI_API_KEY` | ключ LLM | — |
+| `AI_MODEL` | имя модели | — |
+| `AI_PROVIDER` | провайдер (`openai`) | `openai` |
+| `CHECK_INTERVAL_HOURS` | интервал периодических проверок | `6` |
+| `NEXT_PUBLIC_API_URL` | публичный URL API для фронтенда | `https://rivalens.ru` |
 
-```
-competitors                     # компании-конкуренты
-  id            UUID PK
-  name          TEXT            -- «Конкурент А»
-  created_at    TIMESTAMPTZ
-
-pages                           # отслеживаемые страницы
-  id            UUID PK
-  competitor_id UUID FK → competitors
-  url           TEXT
-  title         TEXT            -- человекочитаемое имя страницы
-  check_interval_minutes INT DEFAULT 60
-  css_selector  TEXT NULL       -- опционально: следить за частью страницы
-  is_active     BOOLEAN DEFAULT TRUE
-  last_checked_at TIMESTAMPTZ NULL
-  UNIQUE (competitor_id, url)
-
-page_snapshots                  # версии контента
-  id            UUID PK
-  page_id       UUID FK → pages
-  content_hash  TEXT            -- sha256 нормализованного текста
-  content_text  TEXT            -- сырой/нормализованный контент
-  fetched_at    TIMESTAMPTZ
-  fetch_status  TEXT            -- ok | http_error | timeout | parse_error
-
-changes                         # зафиксированные изменения
-  id            UUID PK
-  page_id       UUID FK → pages
-  old_snapshot_id UUID FK → page_snapshots
-  new_snapshot_id UUID FK → page_snapshots
-  diff_summary  TEXT            -- сводка от LLM
-  created_at    TIMESTAMPTZ
-
-notifications_log               # позже: что и кому отправили
-  id            UUID PK
-  change_id     UUID FK → changes
-  channel       TEXT            -- email
-  sent_at       TIMESTAMPTZ
-```
-
-## Структура папок backend (цель)
+## Структура
 
 ```
 backend/
   app/
-    main.py            # FastAPI, роутер-монтаж
-    config.py          # pydantic-settings, чтение env
-    db.py              # engine, session factory
-    models/            # SQLAlchemy-модели (competitors, pages, ...)
-    schemas/           # pydantic-схемы API
-    api/               # роуты: /competitors, /pages, /changes
-    services/
-      fetcher.py       # httpx: скачать страницу, нормализовать
-      differ.py        # сравнение версий, diff
-      summarizer.py    # LLM-клиент
-      scheduler.py     # расписание проверок
-    worker.py          # entrypoint воркера (если отдельным процессом)
-  alembic/             # миграции
+    api/        # роуты: auth, competitors, billing, admin, schemas
+    auth/       # JWT: security, deps
+    billing/    # лимиты тарифов
+    db/         # engine, session, base
+    diff/       # сравнение сущностей снапшотов
+    fetcher/    # httpx-клиент, extractor, hasher
+    llm/        # суммаризация через OpenAI-совместимый API
+    models/     # SQLAlchemy-модели
+    pipeline.py # fetch -> extract -> diff -> summarize
+    scheduler.py
+  alembic/      # миграции
   tests/
+frontend/
+  src/
+    app/        # страницы: /, /login, /register, /billing, /competitors/[id]
+    components/ # Header, AuthGate
+    lib/        # api.ts (обёртка fetch), auth.ts (токен)
+deploy/         # nginx.conf, гайд по деплою
 ```
-
-## Порядок шагов
-
-1. **CP1 — БД**: SQLAlchemy-модели + Alembic, config, подключение Postgres.
-2. **CP2 — CRUD API**: competitors + pages, валидация, тесты.
-3. **CP3 — Fetcher + snapshots**: httpx, нормализация текста, сохранение версий.
-4. **CP4 — Diff + LLM**: определение изменений, сводки через OpenAI-совместимый API.
-5. **CP5 — Scheduler**: периодические проверки (APScheduler или аналог).
-6. **CP6 — Frontend UI**: список конкурентов, страницы, лента изменений, сводки.
-7. **CP7 — Notifications**: email, настройки уведомлений.
-8. **CP8 — Deploy на VPS**: reverse-proxy (Caddy/nginx), HTTPS на rivalens.ru.

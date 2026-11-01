@@ -212,3 +212,27 @@ async def test_llm_error_does_not_break_pipeline(db, monkeypatch) -> None:
         select(Insight).where(Insight.competitor_id == page.competitor_id)
     ).all()
     assert insights == []
+
+
+@respx.mock
+async def test_empty_html_creates_snapshot(db) -> None:
+    """Edge case: empty page still produces a valid snapshot with empty entities."""
+    page = _make_competitor_with_page(db)
+    respx.get(PAGE_URL).mock(return_value=httpx.Response(200, text=""))
+
+    result = await run_competitor_check(page.competitor_id, db)
+
+    assert result["snapshots_created"] == 1
+    assert result["changes_created"] == 0
+    assert result["insight_id"] is None
+
+    snapshots = db.scalars(
+        select(PageSnapshot).where(PageSnapshot.page_id == page.id)
+    ).all()
+    assert len(snapshots) == 1
+    assert snapshots[0].entities == {
+        "title": "",
+        "headings": [],
+        "links": [],
+        "prices": [],
+    }

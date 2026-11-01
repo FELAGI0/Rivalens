@@ -61,7 +61,10 @@ function CompetitorPageContent() {
     <main className="mx-auto max-w-3xl p-6">
       <Header />
 
-      <Link href="/" className="mb-4 inline-block text-blue-600 underline">
+      <Link
+        href="/"
+        className="mb-4 inline-block rounded border border-gray-300 bg-gray-50 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+      >
         &larr; Back to competitors
       </Link>
 
@@ -85,28 +88,39 @@ function CompetitorPageContent() {
               <button
                 onClick={handleCheckNow}
                 disabled={busy}
-                className="rounded bg-blue-600 p-2 text-white disabled:opacity-50"
+                className="flex items-center gap-2 rounded bg-blue-600 p-2 text-white disabled:opacity-50"
               >
+                {busy && (
+                  <span
+                    className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                    aria-hidden="true"
+                  />
+                )}
                 {busy ? "Checking…" : "Check now"}
               </button>
             </div>
-            <ul className="space-y-1">
-              {detail.pages.map((page) => (
-                <li key={page.id}>
-                  <span className="font-mono text-sm">{page.url}</span>
-                  <span className="ml-2 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                    {page.kind}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            {detail.pages.length === 0 ? (
+              <p className="text-gray-500">No pages yet.</p>
+            ) : (
+              <ul className="space-y-1">
+                {detail.pages.map((page) => (
+                  <li key={page.id}>
+                    <span className="font-mono text-sm">{page.url}</span>
+                    <span className="ml-2 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                      {page.kind}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section className="rounded border p-4">
             <h2 className="mb-2 text-lg font-semibold">Insights</h2>
             {detail.insights.length === 0 ? (
-              <p className="text-gray-500">
-                No insights yet. Click Check now.
+              <p className="rounded border border-dashed border-gray-300 bg-gray-50 p-4 text-gray-500">
+                No insights yet. First check creates a snapshot; the second
+                run with changes generates an insight.
               </p>
             ) : (
               <ul className="space-y-3">

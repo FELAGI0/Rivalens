@@ -155,8 +155,8 @@ function HomeContent() {
         ))}
       </ul>
 
-      {competitors.length === 0 && !error && (
-        <p className="text-gray-500">
+      {competitors.length === 0 && !error && !limitHit && (
+        <p className="rounded border border-dashed border-gray-300 bg-gray-50 p-4 text-center text-gray-500">
           No competitors yet. Add the first one above.
         </p>
       )}
