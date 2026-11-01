@@ -24,6 +24,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3",
     "email-validator>=2.0",
     "curl_cffi>=0.7",
+    "aiosmtplib>=3.0",
 ]
 
 [project.optional-dependencies]

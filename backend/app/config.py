@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     # Scheduled competitor checks
     check_interval_hours: int = 6
 
+    # Email notifications (SMTP), disabled by default
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "noreply@rivalens.ru"
+    smtp_tls: bool = True
+    notifications_enabled: bool = False
+
     # JWT auth
     jwt_secret: str
     jwt_algorithm: str = "HS256"

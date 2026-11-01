@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from app.diff import diff_entities
 from app.fetcher import extract_entities, fetch_html, hash_html
 from app.llm import summarize
-from app.models import Change, Competitor, Insight, PageSnapshot, Page
+from app.models import Change, Competitor, Insight, PageSnapshot, Page, User
+from app.notifications import send_insight_email
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
                 db.flush()
 
     insight_id: UUID | None = None
+    summary: str = ""
     if all_changes:
         try:
             summary = await summarize(all_changes, competitor.name)
@@ -128,6 +130,22 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
             # Snapshot + changes are already persisted at commit below;
             # a failing LLM must never lose them.
             logger.warning("LLM summarization failed: %r", e)
+
+    # Email notification on a new insight. Separated from the LLM block:
+    # email errors are caught inside send_insight_email and must never
+    # affect the pipeline result.
+    if insight_id is not None:
+        try:
+            user = db.get(User, competitor.user_id)
+            if user is not None and user.email:
+                await send_insight_email(
+                    to_email=user.email,
+                    competitor_name=competitor.name,
+                    summary=summary,
+                    competitor_id=str(competitor.id),
+                )
+        except Exception as e:
+            logger.warning("email notification failed: %r", e)
     else:
         logger.info(
             "llm: competitor %s skipped, no changes", competitor.id

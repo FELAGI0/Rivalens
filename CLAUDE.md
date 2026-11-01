@@ -65,6 +65,12 @@
   nginx container. backend -> 127.0.0.1:8001, frontend -> 127.0.0.1:3001,
   host nginx proxies /api/ -> 8001, / -> 3001 (deploy/rivalens.ru.nginx.conf);
   SSL via host certbot --nginx
+- Backups: deploy/backup.sh, cron 0 3 * * *, pg_dump | gzip, 7-day
+  retention in /opt/Rivalens/backups (gitignored)
+- Notifications: SMTP via aiosmtplib, disabled by default
+  (NOTIFICATIONS_ENABLED=false); email errors logged, never fail pipeline
+- Hybrid fetcher: curl_cffi impersonate=chrome primary; Playwright
+  fallback (optional 'browser' extra) only on JS challenge detection
 
 ## Lock file policy
 - frontend/package-lock.json генерируется ТОЛЬКО в Linux-контейнере
