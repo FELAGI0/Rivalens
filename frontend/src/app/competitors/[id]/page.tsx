@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { AuthGate } from "@/components/AuthGate";
 import { Header } from "@/components/Header";
+import { Button } from "@/components/Button";
 import {
   checkCompetitor,
   getCompetitor,
@@ -58,55 +59,56 @@ function CompetitorPageContent() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
+    <main className="mx-auto max-w-3xl px-6 py-16">
       <Header />
 
-      <Link
-        href="/"
-        className="mb-4 inline-block rounded border border-gray-300 bg-gray-50 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
-      >
-        &larr; Back to competitors
-      </Link>
+      <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="mb-1 truncate text-4xl font-semibold">
+            {detail?.competitor.name ?? "…"}
+          </h1>
+          {detail && (
+            <p className="truncate text-sm text-fg-muted">
+              {detail.competitor.url}
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Link
+            href="/"
+            className="inline-flex items-center justify-center rounded-sm border border-line px-4 py-2 text-sm font-medium text-fg transition-colors duration-150 hover:border-fg-muted hover:bg-bg-subtle"
+          >
+            ← Back
+          </Link>
+          <Button onClick={handleCheckNow} disabled={busy}>
+            {busy && <span className="spinner" aria-hidden="true" />}
+            {busy ? "Checking…" : "Check now"}
+          </Button>
+        </div>
+      </div>
 
       {error && (
-        <p className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-700">
+        <p className="mb-8 border-l-2 border-accent pl-4 text-sm text-fg-muted">
           {error}
         </p>
       )}
 
-      {!detail && !error && <p className="text-gray-500">Loading…</p>}
+      {!detail && !error && <p className="text-fg-muted">Loading…</p>}
 
       {detail && (
         <>
-          <h1 className="mb-6 text-3xl font-bold">
-            {detail.competitor.name}
-          </h1>
-
-          <section className="mb-6 rounded border p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Pages</h2>
-              <button
-                onClick={handleCheckNow}
-                disabled={busy}
-                className="flex items-center gap-2 rounded bg-blue-600 p-2 text-white disabled:opacity-50"
-              >
-                {busy && (
-                  <span
-                    className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
-                    aria-hidden="true"
-                  />
-                )}
-                {busy ? "Checking…" : "Check now"}
-              </button>
-            </div>
+          <section className="mb-12">
+            <h2 className="mb-4 text-sm font-medium uppercase text-fg-muted">
+              Pages
+            </h2>
             {detail.pages.length === 0 ? (
-              <p className="text-gray-500">No pages yet.</p>
+              <p className="text-sm text-fg-muted">No pages yet.</p>
             ) : (
-              <ul className="space-y-1">
+              <ul className="divide-y divide-line border-y border-line">
                 {detail.pages.map((page) => (
-                  <li key={page.id}>
+                  <li key={page.id} className="py-3">
                     <span className="font-mono text-sm">{page.url}</span>
-                    <span className="ml-2 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                    <span className="ml-3 text-xs uppercase tracking-wide text-fg-muted">
                       {page.kind}
                     </span>
                   </li>
@@ -115,21 +117,26 @@ function CompetitorPageContent() {
             )}
           </section>
 
-          <section className="rounded border p-4">
-            <h2 className="mb-2 text-lg font-semibold">Insights</h2>
+          <section>
+            <h2 className="mb-4 text-sm font-medium uppercase text-fg-muted">
+              Insights
+            </h2>
             {detail.insights.length === 0 ? (
-              <p className="rounded border border-dashed border-gray-300 bg-gray-50 p-4 text-gray-500">
+              <p className="border-y border-line py-8 text-sm text-fg-muted">
                 No insights yet. First check creates a snapshot; the second
                 run with changes generates an insight.
               </p>
             ) : (
-              <ul className="space-y-3">
+              <ul className="border-t border-line">
                 {detail.insights.map((insight) => (
-                  <li key={insight.id} className="rounded border p-3">
-                    <p className="mb-1 text-xs text-gray-500">
+                  <li
+                    key={insight.id}
+                    className="border-b border-line py-6 md:flex md:gap-8"
+                  >
+                    <p className="mb-2 shrink-0 text-xs text-fg-muted md:mb-0 md:w-36 md:pt-1">
                       {new Date(insight.created_at).toLocaleString("ru-RU")}
                     </p>
-                    <p>{insight.summary}</p>
+                    <p className="leading-relaxed">{insight.summary}</p>
                   </li>
                 ))}
               </ul>

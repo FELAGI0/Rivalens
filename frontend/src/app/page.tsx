@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/AuthGate";
 import { Header } from "@/components/Header";
+import { Button } from "@/components/Button";
+import { Input } from "@/components/Input";
 import {
   createCompetitor,
   getPlan,
   listCompetitors,
-  PaymentRequiredError,
   UnauthorizedError,
+  PaymentRequiredError,
   type Competitor,
   type Plan,
 } from "@/lib/api";
@@ -78,85 +80,88 @@ function HomeContent() {
   const limitLabel =
     plan === null
       ? ""
-      : `Plan: ${plan.plan} (${plan.competitors_used}/${
-          plan.competitors_limit === null
-            ? "∞"
-            : plan.competitors_limit
-        })`;
+      : `${plan.competitors_used} / ${
+          plan.competitors_limit === null ? "∞" : plan.competitors_limit
+        }`;
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <Header />
+    <main className="mx-auto max-w-3xl px-6 py-16">
+      <Header plan={plan ? plan.plan : null} />
 
-      <h1 className="mb-6 text-3xl font-bold">Your competitors</h1>
-
+      <h1 className="mb-2 text-4xl font-semibold">Your competitors</h1>
       {plan && (
-        <p className="mb-6 text-sm text-gray-700">
-          {limitLabel}{" "}
-          <Link href="/billing" className="text-blue-600 underline">
+        <p className="mb-12 text-sm text-fg-muted">
+          Plan: {plan.plan} ({limitLabel}) —{" "}
+          <Link href="/billing" className="text-accent underline-offset-4 hover:underline">
             Manage plan
           </Link>
         </p>
       )}
 
-      <form onSubmit={handleAdd} className="mb-6 flex flex-wrap gap-2">
-        <input
+      <form onSubmit={handleAdd} className="mb-10 flex flex-col gap-2 sm:flex-row">
+        <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Competitor name"
-          className="flex-1 rounded border p-2"
+          className="sm:w-56"
         />
-        <input
+        <Input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://competitor.example.com"
-          className="flex-1 rounded border p-2"
+          className="flex-1"
         />
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded bg-blue-600 p-2 text-white disabled:opacity-50"
-        >
+        <Button type="submit" disabled={busy} className="sm:w-auto">
           Add
-        </button>
+        </Button>
       </form>
 
       {error && (
-        <p className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-700">
+        <p className="mb-8 border-l-2 border-accent pl-4 text-sm text-fg-muted">
           {error}
         </p>
       )}
 
       {limitHit && (
-        <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-amber-800">
+        <div className="mb-8 border-l-2 border-accent pl-4">
           <p className="font-medium">Upgrade to add more competitors</p>
-          <Link href="/billing" className="text-blue-600 underline">
+          <Link
+            href="/billing"
+            className="text-sm text-accent underline-offset-4 hover:underline"
+          >
             Go to plans →
           </Link>
         </div>
       )}
 
-      <ul className="space-y-3">
-        {competitors.map((competitor) => (
-          <li key={competitor.id} className="rounded border p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="font-semibold">{competitor.name}</span>
-                <span className="ml-2 text-gray-500">{competitor.url}</span>
+      {competitors.length > 0 && (
+        <ul className="divide-y divide-line border-t border-line">
+          {competitors.map((competitor) => (
+            <li
+              key={competitor.id}
+              className="group flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <p className="font-medium">{competitor.name}</p>
+                <p className="truncate text-sm text-fg-muted">
+                  {competitor.url}
+                </p>
               </div>
-              <Link
-                href={`/competitors/${competitor.id}`}
-                className="rounded bg-blue-600 p-2 text-white"
-              >
-                View
-              </Link>
-            </div>
-          </li>
-        ))}
-      </ul>
+              <div className="flex shrink-0 gap-2">
+                <Link
+                  href={`/competitors/${competitor.id}`}
+                  className="inline-flex items-center justify-center rounded-sm border border-line px-4 py-2 text-sm font-medium text-fg transition-colors duration-150 hover:border-fg-muted hover:bg-bg-subtle"
+                >
+                  View
+                </Link>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {competitors.length === 0 && !error && !limitHit && (
-        <p className="rounded border border-dashed border-gray-300 bg-gray-50 p-4 text-center text-gray-500">
+        <p className="border-t border-line pt-8 text-fg-muted">
           No competitors yet. Add the first one above.
         </p>
       )}

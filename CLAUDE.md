@@ -71,6 +71,13 @@
   (NOTIFICATIONS_ENABLED=false); email errors logged, never fail pipeline
 - Hybrid fetcher: curl_cffi impersonate=chrome primary; Playwright
   fallback (optional 'browser' extra) only on JS challenge detection
+- Design: editorial minimalism — Lora (serif) headings + Inter body,
+  light+dark via CSS vars in globals.css (@theme inline), bg #FAFAF8 /
+  #0E0E10, accent coral #E85D3D; no purple-blue gradients, no
+  glassmorphism, no default Tailwind blue, radius 2-4px, 1px borders
+- Theme: class on <html>, localStorage 'theme', default system
+  (prefers-color-scheme); init script in <head> prevents flash; fonts
+  via next/font (Lora has cyrillic; Fraunces does NOT)
 
 ## Lock file policy
 - frontend/package-lock.json генерируется ТОЛЬКО в Linux-контейнере

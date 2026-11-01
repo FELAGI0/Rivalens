@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { Button } from "@/components/Button";
+import { Input } from "@/components/Input";
 import { login } from "@/lib/api";
 import { setToken } from "@/lib/auth";
 
@@ -30,53 +32,50 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto max-w-md p-6">
-      <h1 className="mb-6 text-3xl font-bold">Rivalens</h1>
+    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6 py-16">
+      <h1 className="mb-2 font-serif text-3xl font-semibold">Rivalens</h1>
+      <p className="mb-10 text-sm text-fg-muted">
+        Competitor monitoring, summarized.
+      </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="email" className="mb-1 block text-sm">
+          <label htmlFor="email" className="mb-1.5 block text-sm">
             Email
           </label>
-          <input
+          <Input
             id="email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded border p-2"
             required
           />
         </div>
         <div>
-          <label htmlFor="password" className="mb-1 block text-sm">
+          <label htmlFor="password" className="mb-1.5 block text-sm">
             Password
           </label>
-          <input
+          <Input
             id="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded border p-2"
             required
           />
         </div>
         {error && (
-          <p className="rounded border border-red-300 bg-red-50 p-3 text-red-700">
+          <p className="border-l-2 border-accent pl-4 text-sm text-fg-muted">
             {error}
           </p>
         )}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded bg-blue-600 p-2 text-white disabled:opacity-50"
-        >
+        <Button type="submit" disabled={busy} className="w-full">
           {busy ? "Signing in…" : "Sign in"}
-        </button>
+        </Button>
       </form>
 
-      <p className="mt-4 text-sm text-gray-600">
+      <p className="mt-8 text-sm text-fg-muted">
         No account?{" "}
-        <Link href="/register" className="text-blue-600 underline">
+        <Link href="/register" className="text-accent underline-offset-4 hover:underline">
           Register
         </Link>
       </p>

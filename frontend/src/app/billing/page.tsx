@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/AuthGate";
 import { Header } from "@/components/Header";
+import { Button } from "@/components/Button";
 import {
   getPlan,
   setPlan,
@@ -18,24 +19,9 @@ const PLANS: {
   price: string;
   features: string;
 }[] = [
-  {
-    name: "free",
-    limit: 1,
-    price: "$0",
-    features: "1 competitor",
-  },
-  {
-    name: "pro",
-    limit: 10,
-    price: "$9/mo",
-    features: "10 competitors",
-  },
-  {
-    name: "business",
-    limit: null,
-    price: "$29/mo",
-    features: "Unlimited competitors",
-  },
+  { name: "free", limit: 1, price: "$0", features: "1 competitor" },
+  { name: "pro", limit: 10, price: "$9/mo", features: "10 competitors" },
+  { name: "business", limit: null, price: "$29/mo", features: "Unlimited competitors" },
 ];
 
 function BillingContent() {
@@ -80,13 +66,22 @@ function BillingContent() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl p-6">
-      <Header />
+    <main className="mx-auto max-w-3xl px-6 py-16">
+      <Header plan={plan?.plan ?? null} />
 
-      <h1 className="mb-6 text-3xl font-bold">Your plan</h1>
+      <h1 className="mb-2 text-4xl font-semibold">Your plan</h1>
+      {plan && (
+        <p className="mb-10 text-sm text-fg-muted">
+          {plan.competitors_used} of{" "}
+          {plan.competitors_limit === null
+            ? "unlimited"
+            : plan.competitors_limit}{" "}
+          competitors
+        </p>
+      )}
 
       {error && (
-        <p className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-700">
+        <p className="mb-8 border-l-2 border-accent pl-4 text-sm text-fg-muted">
           {error}
         </p>
       )}
@@ -97,51 +92,42 @@ function BillingContent() {
           return (
             <div
               key={p.name}
-              className={`rounded border p-4 ${
-                current ? "border-blue-600 ring-2 ring-blue-600" : "border-gray-300"
+              className={`rounded-sm p-5 ${
+                current
+                  ? "border-2 border-accent"
+                  : "border border-line transition-colors duration-150 hover:border-fg-muted"
               }`}
             >
               <div className="mb-1 flex items-center justify-between">
-                <span className="text-lg font-semibold capitalize">{p.name}</span>
+                <span className="font-serif text-xl font-semibold capitalize">
+                  {p.name}
+                </span>
                 {current && (
-                  <span className="rounded bg-blue-600 px-2 py-0.5 text-xs text-white">
+                  <span className="text-xs uppercase tracking-wide text-accent">
                     Current
                   </span>
                 )}
               </div>
-              <p className="mb-1 text-2xl font-bold">{p.price}</p>
-              <p className="mb-4 text-sm text-gray-600">{p.features}</p>
-              <button
+              <p className="mb-1 text-2xl font-semibold">{p.price}</p>
+              <p className="mb-5 text-sm text-fg-muted">{p.features}</p>
+              <Button
+                variant={current ? "ghost" : "primary"}
                 onClick={() => void handleSwitch(p.name)}
                 disabled={busy !== null || current}
-                className={`w-full rounded p-2 text-sm disabled:opacity-50 ${
-                  current
-                    ? "border border-gray-300 text-gray-500"
-                    : "bg-blue-600 text-white hover:bg-blue-700"
-                }`}
+                className="w-full"
               >
                 {busy === p.name
                   ? "Switching…"
                   : current
                     ? "Active"
                     : `Switch to ${p.name}`}
-              </button>
+              </Button>
             </div>
           );
         })}
       </div>
 
-      {plan && (
-        <p className="mt-4 text-sm text-gray-600">
-          Usage: {plan.competitors_used} of{" "}
-          {plan.competitors_limit === null
-            ? "unlimited"
-            : plan.competitors_limit}{" "}
-          competitors
-        </p>
-      )}
-
-      <p className="mt-6 text-xs text-gray-500">
+      <p className="mt-10 text-xs text-fg-faint">
         MVP: plan switching is free and instant, no payment processing yet.
       </p>
     </main>
