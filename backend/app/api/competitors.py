@@ -16,6 +16,7 @@ from app.api.schemas import (
     PageOut,
 )
 from app.auth.deps import get_current_user
+from app.billing.limits import can_add_competitor, competitor_count
 from app.db.session import get_session
 from app.models import Change, Competitor, Insight, Page, PageKind, User
 from app.pipeline import run_competitor_check
@@ -39,6 +40,12 @@ def create_competitor(
     db: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> Competitor:
+    if not can_add_competitor(db, user):
+        raise HTTPException(
+            status_code=402,
+            detail="plan limit reached",
+        )
+
     existing = db.scalars(
         select(Competitor).where(
             Competitor.user_id == user.id, Competitor.name == payload.name
@@ -75,6 +82,19 @@ def list_competitors(
     return list(
         db.scalars(select(Competitor).where(Competitor.user_id == user.id)).all()
     )
+
+
+@router.get("/plan/usage")
+def get_plan_usage(
+    db: Session = Depends(get_session), user: User = Depends(get_current_user)
+) -> dict:
+    from app.billing.limits import PLAN_LIMITS
+
+    return {
+        "plan": plan_name(user.plan),
+        "competitors_used": competitor_count(db, user),
+        "competitors_limit": PLAN_LIMITS.get(plan_name(user.plan)),
+    }
 
 
 @router.get("/{competitor_id}", response_model=CompetitorDetail)

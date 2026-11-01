@@ -50,7 +50,14 @@ export type User = {
   plan: string;
 };
 
+export type Plan = {
+  plan: string;
+  competitors_used: number;
+  competitors_limit: number | null;
+};
+
 export class UnauthorizedError extends Error {}
+export class PaymentRequiredError extends Error {}
 
 async function request<T>(
   path: string,
@@ -73,6 +80,9 @@ async function request<T>(
   if (response.status === 401) {
     clearToken();
     throw new UnauthorizedError("unauthorized");
+  }
+  if (response.status === 402) {
+    throw new PaymentRequiredError("plan limit reached");
   }
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -116,6 +126,18 @@ export async function register(
 
 export async function getMe(): Promise<User> {
   return request<User>("/auth/me");
+}
+
+export async function getPlan(): Promise<Plan> {
+  return request<Plan>("/billing/plan");
+}
+
+export async function setPlan(plan: string): Promise<Plan> {
+  return request<Plan>("/billing/plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan }),
+  });
 }
 
 export async function listCompetitors(): Promise<Competitor[]> {

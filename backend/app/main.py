@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import admin, auth, competitors
+from app.api import admin, auth, billing, competitors
 from app.scheduler import start_scheduler, stop_scheduler
 
 # uvicorn configures only its own uvicorn.* loggers: root stays at
@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Rivalens API", lifespan=lifespan)
 
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(billing.router, prefix="/api/v1")
 app.include_router(competitors.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 

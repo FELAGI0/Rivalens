@@ -2,28 +2,38 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/AuthGate";
 import { Header } from "@/components/Header";
 import {
   createCompetitor,
+  getPlan,
   listCompetitors,
+  PaymentRequiredError,
   UnauthorizedError,
   type Competitor,
+  type Plan,
 } from "@/lib/api";
-import { useRouter } from "next/navigation";
 
 function HomeContent() {
   const router = useRouter();
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
+  const [plan, setPlanState] = useState<Plan | null>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [limitHit, setLimitHit] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
     try {
-      setCompetitors(await listCompetitors());
+      const [competitorList, planInfo] = await Promise.all([
+        listCompetitors(),
+        getPlan(),
+      ]);
+      setCompetitors(competitorList);
+      setPlanState(planInfo);
       setError(null);
     } catch (e) {
       if (e instanceof UnauthorizedError) {
@@ -43,6 +53,7 @@ function HomeContent() {
     event.preventDefault();
     if (!name.trim() || !url.trim()) return;
     setBusy(true);
+    setLimitHit(false);
     try {
       await createCompetitor({ name: name.trim(), url: url.trim() });
       setName("");
@@ -54,17 +65,39 @@ function HomeContent() {
         router.replace("/login");
         return;
       }
+      if (e instanceof PaymentRequiredError) {
+        setLimitHit(true);
+        return;
+      }
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
 
+  const limitLabel =
+    plan === null
+      ? ""
+      : `Plan: ${plan.plan} (${plan.competitors_used}/${
+          plan.competitors_limit === null
+            ? "∞"
+            : plan.competitors_limit
+        })`;
+
   return (
     <main className="mx-auto max-w-3xl p-6">
       <Header />
 
       <h1 className="mb-6 text-3xl font-bold">Your competitors</h1>
+
+      {plan && (
+        <p className="mb-6 text-sm text-gray-700">
+          {limitLabel}{" "}
+          <Link href="/billing" className="text-blue-600 underline">
+            Manage plan
+          </Link>
+        </p>
+      )}
 
       <form onSubmit={handleAdd} className="mb-6 flex flex-wrap gap-2">
         <input
@@ -94,6 +127,15 @@ function HomeContent() {
         </p>
       )}
 
+      {limitHit && (
+        <div className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-amber-800">
+          <p className="font-medium">Upgrade to add more competitors</p>
+          <Link href="/billing" className="text-blue-600 underline">
+            Go to plans →
+          </Link>
+        </div>
+      )}
+
       <ul className="space-y-3">
         {competitors.map((competitor) => (
           <li key={competitor.id} className="rounded border p-4">
@@ -114,7 +156,9 @@ function HomeContent() {
       </ul>
 
       {competitors.length === 0 && !error && (
-        <p className="text-gray-500">No competitors yet.</p>
+        <p className="text-gray-500">
+          No competitors yet. Add the first one above.
+        </p>
       )}
     </main>
   );
