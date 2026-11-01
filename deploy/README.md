@@ -86,3 +86,29 @@ docker compose -f docker-compose.prod.yml up -d --build
 - Продление сертификата: certbot на хосте обычно ставит свой systemd-timer
   (`certbot renew --deploy-hook "systemctl reload nginx"`); проверить:
   `systemctl list-timers | grep certbot`
+
+## Backups
+
+Ежедневный дамп Postgres с хранением 7 последних копий:
+
+```bash
+chmod +x deploy/backup.sh
+crontab -e
+# 0 3 * * * /opt/Rivalens/deploy/backup.sh >> /var/log/rivalens-backup.log 2>&1
+```
+
+Ручной запуск: `/opt/Rivalens/deploy/backup.sh` — создаёт
+`/opt/Rivalens/backups/rivalens_ГГГГММДД_ЧЧММСС.sql.gz`.
+
+Восстановление:
+
+```bash
+gunzip -c /opt/Rivalens/backups/rivalens_YYYYMMDD_HHMMSS.sql.gz | \
+  docker compose -f /opt/Rivalens/docker-compose.prod.yml \
+  --env-file /opt/Rivalens/.env.prod exec -T postgres \
+  psql -U rivalens -d rivalens
+```
+
+Каталог `/backups/` в git не попадает (.gitignore). Бэкапы лежат на том же
+VPS — для продакшена стоит настроить копирование наружу (rsync на другую
+машину / object storage) отдельным шагом.
