@@ -5,6 +5,8 @@ import pytest
 import respx
 from sqlalchemy import select
 
+from app.fetcher.client import fetch_html
+from app.fetcher.extractor import extract_entities
 from app.models import Change, Competitor, Insight, Page, PageKind, PageSnapshot, User
 from app.pipeline import run_competitor_check
 
@@ -53,6 +55,10 @@ class _FakeResponse:
 
 
 def _make_competitor_with_page(db) -> Page:
+    return _make_competitor_with_page_at(db, PAGE_URL)
+
+
+def _make_competitor_with_page_at(db, page_url: str) -> Page:
     user = User(email="pipeline@example.com", password_hash="not-a-real-hash")
     db.add(user)
     db.flush()
@@ -63,7 +69,7 @@ def _make_competitor_with_page(db) -> Page:
     )
     db.add(competitor)
     db.flush()
-    page = Page(competitor_id=competitor.id, url=PAGE_URL, kind=PageKind.PRICE)
+    page = Page(competitor_id=competitor.id, url=page_url, kind=PageKind.PRICE)
     db.add(page)
     db.commit()
     return page
@@ -236,3 +242,83 @@ async def test_empty_html_creates_snapshot(db) -> None:
         "links": [],
         "prices": [],
     }
+
+
+# A few lines of real news.ycombinator.com markup: exercises the parser
+# on messy real-world HTML (custom tags, nested links, no prices).
+HN_HTML = """
+<html><head><title>Hacker News</title></head>
+<body>
+  <tr><td class="title"><a href="https://example-ycombinator-com-2.example.com" class="titlelink">Some YC story</a></td></tr>
+  <tr><td class="subtext"><span class="score">321 points</span></td></tr>
+  <tr><td valign="top" class="votelinks"><a id="up_1" href="vote?for=1">...</a></td></tr>
+</body></html>
+"""
+
+HN_URL = "https://news.ycombinator.com/"
+
+
+@respx.mock
+async def test_fetch_hn_real(db) -> None:
+    """HN-style markup extracts title, headings and links correctly."""
+    entities = extract_entities(HN_HTML)
+    assert entities["title"] == "Hacker News"
+    assert entities["headings"] == []  # HN markup has no h1/h2
+    hrefs = [link["href"] for link in entities["links"]]
+    assert "https://example-ycombinator-com-2.example.com" in hrefs
+    assert "vote?for=1" in hrefs
+    assert entities["prices"] == []
+
+    # And through the fetch layer: a mocked 200 yields the same HTML.
+    respx.get(HN_URL).mock(return_value=httpx.Response(200, text=HN_HTML))
+    html = await fetch_html(HN_URL)
+    assert html == HN_HTML
+    assert extract_entities(html)["title"] == "Hacker News"
+
+
+@respx.mock
+async def test_fetch_retries_on_network_error(db, monkeypatch) -> None:
+    """Transport errors are retried once after a delay, then succeed."""
+    # Zero the retry delay so the test is fast.
+    monkeypatch.setattr("app.fetcher.client.RETRY_DELAY_SECONDS", 0.0)
+
+    # Simulate one transport error, then success. respx side_effect list
+    # is consumed per call.
+    respx.get(HN_URL).mock(
+        side_effect=[
+            httpx.ConnectError("connection refused"),
+            httpx.Response(200, text=HN_HTML),
+        ]
+    )
+
+    html = await fetch_html(HN_URL)
+    assert html == HN_HTML
+
+
+@pytest.mark.integration
+async def test_pipeline_with_real_fetch(db) -> None:
+    """Integration: a live fetch of https://example.com (no mock).
+
+    Skipped when the network is unavailable (sandboxed CI, offline dev).
+    """
+    try:
+        response = await httpx.AsyncClient(
+            timeout=10.0,
+            headers={"User-Agent": "Rivalens-test"},
+            follow_redirects=True,
+        ).get("https://example.com")
+        response.raise_for_status()
+    except httpx.HTTPError:
+        pytest.skip("no network access to https://example.com")
+
+    page = _make_competitor_with_page_at(
+        db, "https://example.com"
+    )
+    result = await run_competitor_check(page.competitor_id, db)
+
+    assert result["snapshots_created"] == 1
+    snapshots = db.scalars(
+        select(PageSnapshot).where(PageSnapshot.page_id == page.id)
+    ).all()
+    assert len(snapshots) == 1
+    assert snapshots[0].entities["title"] == "Example Domain"

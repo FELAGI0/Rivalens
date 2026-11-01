@@ -40,3 +40,6 @@ exclude = ["alembic*", "tests*", "*.egg-info"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: tests that hit the real network (skipped when offline)",
+]

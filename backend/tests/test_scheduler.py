@@ -5,6 +5,7 @@ import pytest
 import respx
 from sqlalchemy import select
 
+from app.auth.security import create_access_token
 from app.models import Competitor, Page, PageKind, PageSnapshot, User
 from app.scheduler import run_all_competitors
 
@@ -149,3 +150,40 @@ async def test_run_all_inactive_skipped(db, session_factory_override, monkeypatc
     assert result["failed"] == 0
     assert len(result["results"]) == 1
     assert result["results"][0]["competitor_id"] == str(comp_active.id)
+
+
+# --- admin/run-all auth (endpoint tests, need the ASGI client) ---
+
+import httpx as _httpx
+
+from app.db.session import get_session as _get_session
+from app.main import app as _app
+from tests.conftest import TEST_PASSWORD as _TEST_PASSWORD, make_user as _make_user
+
+
+@pytest.fixture
+async def api_client(db):
+    _app.dependency_overrides[_get_session] = lambda: db
+    transport = _httpx.ASGITransport(app=_app)
+    async with _httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as async_client:
+        yield async_client
+    _app.dependency_overrides.pop(_get_session, None)
+
+
+async def test_run_all_requires_auth(api_client, db) -> None:
+    response = await api_client.post("/api/v1/admin/run-all")
+    assert response.status_code == 401
+
+
+@respx.mock
+async def test_run_all_with_auth(api_client, db, session_factory_override) -> None:
+    user = _make_user(db, "admin-trigger@example.com", _TEST_PASSWORD)
+    headers = {"Authorization": f"Bearer {create_access_token(str(user.id))}"}
+
+    response = await api_client.post("/api/v1/admin/run-all", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["checked"] == 0
+    assert body["failed"] == 0

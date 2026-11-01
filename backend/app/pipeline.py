@@ -39,8 +39,17 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
         try:
             html = await fetch_html(page.url)
         except Exception as e:
-            logger.warning("fetch failed for page %s (%s): %s", page.id, page.url, e)
+            # Full exception type + message: on the VPS the plain %s form
+            # logged just "httpx.ConnectError" with no details, which made
+            # diagnosing the HN fetch failures impossible.
+            logger.warning(
+                "fetch failed for page %s (%s): %r", page.id, page.url, e
+            )
             continue
+
+        logger.info(
+            "extract: page %s fetched %d bytes", page.id, len(html)
+        )
 
         # Latest snapshot BEFORE this check — queried before inserting the
         # new one, so equal fetched_at values (server now() is per-transaction)
@@ -62,9 +71,25 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
         db.flush()
         snapshots_created += 1
         new_snapshot_times.append(new_snap.fetched_at)
+        logger.info(
+            "snapshot: page %s -> snapshot %s (%d headings, %d links, %d prices, hash=%s)",
+            page.id,
+            new_snap.id,
+            len(entities["headings"]),
+            len(entities["links"]),
+            len(entities["prices"]),
+            new_snap.content_hash[:12],
+        )
 
         if prev is not None:
             page_changes = diff_entities(prev.entities, entities)
+            logger.info(
+                "diff: page %s %s -> %s: %d changes",
+                page.id,
+                prev.id,
+                new_snap.id,
+                len(page_changes),
+            )
             for d in page_changes:
                 change = Change(
                     page_id=page.id,
@@ -93,8 +118,20 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
             db.add(insight)
             db.flush()
             insight_id = insight.id
+            logger.info(
+                "llm: competitor %s -> insight %s (%d changes summarized)",
+                competitor.id,
+                insight_id,
+                len(all_changes),
+            )
         except Exception as e:
-            logger.warning("LLM summarization failed: %s", e)
+            # Snapshot + changes are already persisted at commit below;
+            # a failing LLM must never lose them.
+            logger.warning("LLM summarization failed: %r", e)
+    else:
+        logger.info(
+            "llm: competitor %s skipped, no changes", competitor.id
+        )
 
     db.commit()
 

@@ -3,6 +3,7 @@
 import httpx
 import pytest
 
+from app.auth.security import create_access_token
 from app.db.session import get_session
 from app.main import app
 from tests.conftest import TEST_PASSWORD, make_user
@@ -126,3 +127,8 @@ async def test_isolate_between_users(client, db) -> None:
     )
     assert response.status_code == 200
     assert response.json()["competitor"]["name"] == "A's competitor"
+
+
+async def test_run_all_requires_auth(client, db) -> None:
+    response = await client.post("/api/v1/admin/run-all")
+    assert response.status_code == 401
