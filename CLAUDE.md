@@ -61,6 +61,10 @@
 - 402 when limit exceeded (competitors POST checks can_add_competitor)
 - User.plan: normalize enum via plan_name() — str(UserPlan.FREE) is
   "UserPlan.FREE", which misses PLAN_LIMITS and reads as unlimited
+- Prod (VPS): host nginx owns 80/443 (shared with another project); no
+  nginx container. backend -> 127.0.0.1:8001, frontend -> 127.0.0.1:3001,
+  host nginx proxies /api/ -> 8001, / -> 3001 (deploy/rivalens.ru.nginx.conf);
+  SSL via host certbot --nginx
 
 ## Lock file policy
 - frontend/package-lock.json генерируется ТОЛЬКО в Linux-контейнере

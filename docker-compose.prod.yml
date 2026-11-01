@@ -25,7 +25,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # No ports: nginx proxies to backend:8000.
+    ports:
+      - "127.0.0.1:8001:8000"
+    # Only the host nginx (running outside Docker) reaches the backend.
 
   frontend:
     build:
@@ -37,21 +39,13 @@ services:
       - .env.prod
     depends_on:
       - backend
-    # No ports: nginx proxies to frontend:3000.
-
-  nginx:
-    image: nginx:alpine
-    restart: always
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./deploy/letsencrypt:/etc/letsencrypt:ro
-      - ./deploy/certbot-www:/var/www/certbot
-    depends_on:
-      - backend
-      - frontend
+      - "127.0.0.1:3001:3000"
+    # Only the host nginx (running outside Docker) reaches the frontend.
+
+# All three services share the default compose network; no nginx container
+# here — ports 80/443 on the VPS are owned by the host nginx, which proxies
+# /api/ -> 127.0.0.1:8001 and / -> 127.0.0.1:3001 (deploy/rivalens.ru.nginx.conf).
 
 volumes:
   postgres_data:
