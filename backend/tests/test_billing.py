@@ -41,23 +41,29 @@ async def test_plan_default_free(client, db) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["plan"] == "free"
-    assert body["competitors_limit"] == 1
+    assert body["competitors_limit"] == 2
     assert body["competitors_used"] == 0
 
 
-async def test_free_limit_blocks_second(client, db) -> None:
+async def test_free_limit_blocks_third(client, db) -> None:
+    """free=2: two competitors fit, the third is blocked with 402."""
     user = make_user(db, "free-limit@example.com")
     headers = {"Authorization": await _auth_header(db, user)}
 
-    response = await _add_competitor(
-        client, headers, "First", "https://first.example.com"
-    )
-    assert response.status_code == 201
+    for name, host in (
+        ("First", "first.example.com"),
+        ("Second", "second.example.com"),
+    ):
+        response = await _add_competitor(
+            client, headers, name, f"https://{host}"
+        )
+        assert response.status_code == 201
 
     response = await _add_competitor(
-        client, headers, "Second", "https://second.example.com"
+        client, headers, "Third", "https://third.example.com"
     )
     assert response.status_code == 402
+    assert "Pro" in response.json()["detail"]
 
 
 async def test_upgrade_unlocks(client, db) -> None:
@@ -69,7 +75,7 @@ async def test_upgrade_unlocks(client, db) -> None:
     )
     assert first.status_code == 201
 
-    # Upgrade to pro before adding the second competitor.
+    # Upgrade to pro, then fill past the free limit of 2.
     response = await client.post(
         "/api/v1/billing/plan", json={"plan": "pro"}, headers=headers
     )
@@ -77,10 +83,15 @@ async def test_upgrade_unlocks(client, db) -> None:
     assert response.json()["plan"] == "pro"
     assert response.json()["competitors_limit"] == 10
 
-    second = await _add_competitor(
-        client, headers, "Second", "https://second.example.com"
-    )
-    assert second.status_code == 201
+    for name, host in (
+        ("Second", "second.example.com"),
+        ("Third", "third.example.com"),
+        ("Fourth", "fourth.example.com"),
+    ):
+        response = await _add_competitor(
+            client, headers, name, f"https://{host}"
+        )
+        assert response.status_code == 201
 
 
 async def test_get_plan_shows_used(client, db) -> None:
@@ -95,3 +106,25 @@ async def test_get_plan_shows_used(client, db) -> None:
     response = await client.get("/api/v1/billing/plan", headers=headers)
     assert response.status_code == 200
     assert response.json()["competitors_used"] == 1
+
+
+async def test_free_limit_two(client, db) -> None:
+    """Free plan now fits 2 competitors; the third is a 402."""
+    user = make_user(db, "free-two@example.com")
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    first = await _add_competitor(
+        client, headers, "First", "https://first.example.com"
+    )
+    assert first.status_code == 201
+
+    second = await _add_competitor(
+        client, headers, "Second", "https://second.example.com"
+    )
+    assert second.status_code == 201
+
+    third = await _add_competitor(
+        client, headers, "Third", "https://third.example.com"
+    )
+    assert third.status_code == 402
+    assert "Pro" in third.json()["detail"]

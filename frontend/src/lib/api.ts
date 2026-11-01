@@ -32,6 +32,13 @@ export type Change = {
   detected_at: string;
 };
 
+export async function listChanges(
+  id: string,
+  limit: number = 50,
+): Promise<Change[]> {
+  return request<Change[]>(`/competitors/${id}/changes?limit=${limit}`);
+}
+
 export type CheckResult = {
   snapshots_created: number;
   changes_created: number;

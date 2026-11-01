@@ -43,7 +43,10 @@ def create_competitor(
     if not can_add_competitor(db, user):
         raise HTTPException(
             status_code=402,
-            detail="plan limit reached",
+            detail=(
+                "Лимит Free — 2 конкурента. Перейдите на Pro, "
+                "чтобы добавить больше."
+            ),
         )
 
     existing = db.scalars(

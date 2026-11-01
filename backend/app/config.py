@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = "noreply@rivalens.ru"
     smtp_tls: bool = True
-    notifications_enabled: bool = False
+    # On by default: notifications are the core loop of a monitoring
+    # product. A missing SMTP_HOST degrades to a logged warning.
+    notifications_enabled: bool = True
 
     # JWT auth
     jwt_secret: str

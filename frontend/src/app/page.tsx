@@ -86,14 +86,14 @@ function HomeContent() {
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <Header plan={plan ? plan.plan : null} />
+      <Header plan={plan ? `Тариф: ${plan.plan}` : null} />
 
-      <h1 className="mb-2 text-4xl font-semibold">Your competitors</h1>
+      <h1 className="mb-2 text-4xl font-semibold">Ваши конкуренты</h1>
       {plan && (
         <p className="mb-12 text-sm text-fg-muted">
-          Plan: {plan.plan} ({limitLabel}) —{" "}
+          Тариф: {plan.plan} ({limitLabel}) —{" "}
           <Link href="/billing" className="text-accent underline-offset-4 hover:underline">
-            Manage plan
+            Сменить тариф
           </Link>
         </p>
       )}
@@ -102,17 +102,17 @@ function HomeContent() {
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Competitor name"
+          placeholder="Название конкурента"
           className="sm:w-56"
         />
         <Input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://competitor.example.com"
+          placeholder="https://пример.ру"
           className="flex-1"
         />
         <Button type="submit" disabled={busy} className="sm:w-auto">
-          Add
+          Добавить
         </Button>
       </form>
 
@@ -124,12 +124,12 @@ function HomeContent() {
 
       {limitHit && (
         <div className="mb-8 border-l-2 border-accent pl-4">
-          <p className="font-medium">Upgrade to add more competitors</p>
+          <p className="font-medium">Лимит тарифа достигнут</p>
           <Link
             href="/billing"
             className="text-sm text-accent underline-offset-4 hover:underline"
           >
-            Go to plans →
+            Перейти на Pro →
           </Link>
         </div>
       )}
@@ -152,7 +152,7 @@ function HomeContent() {
                   href={`/competitors/${competitor.id}`}
                   className="inline-flex items-center justify-center rounded-sm border border-line px-4 py-2 text-sm font-medium text-fg transition-colors duration-150 hover:border-fg-muted hover:bg-bg-subtle"
                 >
-                  View
+                  Открыть
                 </Link>
               </div>
             </li>
@@ -162,7 +162,20 @@ function HomeContent() {
 
       {competitors.length === 0 && !error && !limitHit && (
         <p className="border-t border-line pt-8 text-fg-muted">
-          No competitors yet. Add the first one above.
+          Пока нет конкурентов. Добавьте первого — увидите, как работает
+          мониторинг.
+        </p>
+      )}
+
+      {plan?.plan === "free" && (
+        <p className="mt-10 border-t border-line pt-4 text-xs text-fg-muted">
+          На Free — 2 конкурента. Pro — 10, $9/мес.{" "}
+          <Link
+            href="/billing"
+            className="text-accent underline-offset-4 hover:underline"
+          >
+            Подробнее
+          </Link>
         </p>
       )}
     </main>

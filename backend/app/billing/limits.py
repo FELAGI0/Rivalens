@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 from app.models import Competitor, User, UserPlan
 
 # None = unlimited
+# free=2: one slot for the demo competitor is not enough to feel the
+# product — the user must be able to add a real one without upgrading.
 PLAN_LIMITS: dict[str, int | None] = {
-    "free": 1,
+    "free": 2,
     "pro": 10,
     "business": None,
 }

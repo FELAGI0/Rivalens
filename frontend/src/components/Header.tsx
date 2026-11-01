@@ -28,7 +28,7 @@ export function Header({ plan }: { plan?: string | null }) {
         )}
         <ThemeToggle />
         <Button variant="ghost" onClick={handleLogout} className="px-3 py-1.5">
-          Logout
+          Выйти
         </Button>
       </div>
     </header>

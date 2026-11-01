@@ -87,6 +87,33 @@ docker compose -f docker-compose.prod.yml up -d --build
   (`certbot renew --deploy-hook "systemctl reload nginx"`); проверить:
   `systemctl list-timers | grep certbot`
 
+## SMTP (email-уведомления)
+
+Уведомления включены по умолчанию (`NOTIFICATIONS_ENABLED=true`); без
+`SMTP_HOST` письма просто не отправляются (warning в логах), остальное
+работает.
+
+Проверенные варианты SMTP:
+
+| Провайдер | Host | Port | Примечание |
+|---|---|---|---|
+| Яндекс | `smtp.yandex.ru` | 465 | пароль приложения (не основной): https://id.yandex.ru/security/app-passwords |
+| Gmail | `smtp.gmail.com` | 587 | App Password: https://myaccount.google.com/apppasswords |
+| SendGrid | `smtp.sendgrid.net` | 587 | user — буквально `apikey`, пароль — API-ключ |
+
+Пример (Яндекс):
+
+```ini
+SMTP_HOST=smtp.yandex.ru
+SMTP_PORT=465
+SMTP_USER=rivalens@yandex.ru
+SMTP_PASSWORD=<app-password>
+SMTP_FROM=rivalens@yandex.ru
+NOTIFICATIONS_ENABLED=true
+```
+
+После правки `.env.prod`: `docker compose -f docker-compose.prod.yml up -d backend`.
+
 ## Backups
 
 Ежедневный дамп Postgres с хранением 7 последних копий:

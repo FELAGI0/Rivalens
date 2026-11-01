@@ -19,9 +19,9 @@ const PLANS: {
   price: string;
   features: string;
 }[] = [
-  { name: "free", limit: 1, price: "$0", features: "1 competitor" },
-  { name: "pro", limit: 10, price: "$9/mo", features: "10 competitors" },
-  { name: "business", limit: null, price: "$29/mo", features: "Unlimited competitors" },
+  { name: "free", limit: 2, price: "$0", features: "2 конкурента" },
+  { name: "pro", limit: 10, price: "$9/мес", features: "10 конкурентов" },
+  { name: "business", limit: null, price: "$29/мес", features: "Без ограничений" },
 ];
 
 function BillingContent() {
@@ -65,18 +65,24 @@ function BillingContent() {
     }
   }
 
+  const PLAN_LABELS: Record<string, string> = {
+    free: "Free",
+    pro: "Pro",
+    business: "Business",
+  };
+
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <Header plan={plan?.plan ?? null} />
+      <Header plan={plan ? `Тариф: ${plan.plan}` : null} />
 
-      <h1 className="mb-2 text-4xl font-semibold">Your plan</h1>
+      <h1 className="mb-2 text-4xl font-semibold">Ваш тариф</h1>
       {plan && (
         <p className="mb-10 text-sm text-fg-muted">
-          {plan.competitors_used} of{" "}
+          {plan.competitors_used} из{" "}
           {plan.competitors_limit === null
-            ? "unlimited"
+            ? "неограниченного числа"
             : plan.competitors_limit}{" "}
-          competitors
+          конкурентов
         </p>
       )}
 
@@ -99,12 +105,12 @@ function BillingContent() {
               }`}
             >
               <div className="mb-1 flex items-center justify-between">
-                <span className="font-serif text-xl font-semibold capitalize">
-                  {p.name}
+                <span className="font-serif text-xl font-semibold">
+                  {PLAN_LABELS[p.name] ?? p.name}
                 </span>
                 {current && (
                   <span className="text-xs uppercase tracking-wide text-accent">
-                    Current
+                    Текущий
                   </span>
                 )}
               </div>
@@ -117,10 +123,10 @@ function BillingContent() {
                 className="w-full"
               >
                 {busy === p.name
-                  ? "Switching…"
+                  ? "Переключаем…"
                   : current
-                    ? "Active"
-                    : `Switch to ${p.name}`}
+                    ? "Активен"
+                    : `Перейти на ${PLAN_LABELS[p.name] ?? p.name}`}
               </Button>
             </div>
           );
@@ -128,7 +134,7 @@ function BillingContent() {
       </div>
 
       <p className="mt-10 text-xs text-fg-faint">
-        MVP: plan switching is free and instant, no payment processing yet.
+        Оплата скоро. Сейчас тариф переключается бесплатно для теста.
       </p>
     </main>
   );

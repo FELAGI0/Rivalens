@@ -35,7 +35,7 @@ export default function LoginPage() {
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6 py-16">
       <h1 className="mb-2 font-serif text-3xl font-semibold">Rivalens</h1>
       <p className="mb-10 text-sm text-fg-muted">
-        Competitor monitoring, summarized.
+        Мониторинг конкурентов в одном письме.
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -53,7 +53,7 @@ export default function LoginPage() {
         </div>
         <div>
           <label htmlFor="password" className="mb-1.5 block text-sm">
-            Password
+            Пароль
           </label>
           <Input
             id="password"
@@ -69,14 +69,14 @@ export default function LoginPage() {
           </p>
         )}
         <Button type="submit" disabled={busy} className="w-full">
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? "Входим…" : "Войти"}
         </Button>
       </form>
 
       <p className="mt-8 text-sm text-fg-muted">
-        No account?{" "}
+        Нет аккаунта?{" "}
         <Link href="/register" className="text-accent underline-offset-4 hover:underline">
-          Register
+          Зарегистрироваться
         </Link>
       </p>
     </main>

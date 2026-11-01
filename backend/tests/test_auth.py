@@ -132,3 +132,29 @@ async def test_isolate_between_users(client, db) -> None:
 async def test_run_all_requires_auth(client, db) -> None:
     response = await client.post("/api/v1/admin/run-all")
     assert response.status_code == 401
+
+
+async def test_register_seeds_demo(client, db) -> None:
+    """Registration plants exactly one demo competitor with one insight."""
+    from sqlalchemy import select
+
+    from app.models import Competitor, Insight
+
+    response = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "demo-seed@example.com", "password": TEST_PASSWORD},
+    )
+    assert response.status_code == 201
+    user_id = response.json()["id"]
+
+    competitors = db.scalars(
+        select(Competitor).where(Competitor.user_id == user_id)
+    ).all()
+    assert len(competitors) == 1
+    assert competitors[0].name == "Демо: Habr"
+
+    insights = db.scalars(
+        select(Insight).where(Insight.competitor_id == competitors[0].id)
+    ).all()
+    assert len(insights) == 1
+    assert "Habr" in insights[0].summary

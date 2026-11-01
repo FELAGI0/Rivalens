@@ -10,9 +10,44 @@ import { Button } from "@/components/Button";
 import {
   checkCompetitor,
   getCompetitor,
+  listChanges,
   UnauthorizedError,
+  type Change,
   type CompetitorDetail,
 } from "@/lib/api";
+
+function formatChange(change: Change): {
+  label: string;
+  emphasis: boolean;
+} {
+  const p = change.payload;
+  switch (change.kind) {
+    case "price_added":
+      return { label: `Цена: +${String(p.value)}`, emphasis: true };
+    case "price_removed":
+      return { label: `Цена: −${String(p.value)}`, emphasis: true };
+    case "heading_added":
+      return { label: `Добавлен раздел: «${String(p.text)}»`, emphasis: false };
+    case "heading_removed":
+      return { label: `Убран раздел: «${String(p.text)}»`, emphasis: false };
+    case "link_added":
+      return { label: `Новая ссылка: ${String(p.href)}`, emphasis: false };
+    case "link_removed":
+      return { label: `Удалена ссылка: ${String(p.href)}`, emphasis: false };
+    case "title":
+      return {
+        label: `${String(p.from)} → ${String(p.to)}`,
+        emphasis: false,
+      };
+    default:
+      return { label: `${change.kind}`, emphasis: false };
+  }
+}
+
+function sortChanges(changes: Change[]): Change[] {
+  const rank = (c: Change) => (c.kind.startsWith("price_") ? 0 : 1);
+  return [...changes].sort((a, b) => rank(a) - rank(b));
+}
 
 function CompetitorPageContent() {
   const router = useRouter();
@@ -20,13 +55,19 @@ function CompetitorPageContent() {
   const id = params?.id ?? "";
 
   const [detail, setDetail] = useState<CompetitorDetail | null>(null);
+  const [changes, setChanges] = useState<Change[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!id) return;
     try {
-      setDetail(await getCompetitor(id));
+      const [competitorDetail, changeList] = await Promise.all([
+        getCompetitor(id),
+        listChanges(id),
+      ]);
+      setDetail(competitorDetail);
+      setChanges(sortChanges(changeList));
       setError(null);
     } catch (e) {
       if (e instanceof UnauthorizedError) {
@@ -78,11 +119,11 @@ function CompetitorPageContent() {
             href="/"
             className="inline-flex items-center justify-center rounded-sm border border-line px-4 py-2 text-sm font-medium text-fg transition-colors duration-150 hover:border-fg-muted hover:bg-bg-subtle"
           >
-            ← Back
+            ← К списку
           </Link>
           <Button onClick={handleCheckNow} disabled={busy}>
             {busy && <span className="spinner" aria-hidden="true" />}
-            {busy ? "Checking…" : "Check now"}
+            {busy ? "Проверяем…" : "Проверить сейчас"}
           </Button>
         </div>
       </div>
@@ -93,22 +134,22 @@ function CompetitorPageContent() {
         </p>
       )}
 
-      {!detail && !error && <p className="text-fg-muted">Loading…</p>}
+      {!detail && !error && <p className="text-fg-muted">Загрузка…</p>}
 
       {detail && (
         <>
           <section className="mb-12">
             <h2 className="mb-4 text-sm font-medium uppercase text-fg-muted">
-              Pages
+              Страницы
             </h2>
             {detail.pages.length === 0 ? (
-              <p className="text-sm text-fg-muted">No pages yet.</p>
+              <p className="text-sm text-fg-muted">Страниц пока нет.</p>
             ) : (
               <ul className="divide-y divide-line border-y border-line">
                 {detail.pages.map((page) => (
                   <li key={page.id} className="py-3">
                     <span className="font-mono text-sm">{page.url}</span>
-                    <span className="ml-3 text-xs uppercase tracking-wide text-fg-muted">
+                    <span className="ml-3 text-xs uppercase text-fg-muted">
                       {page.kind}
                     </span>
                   </li>
@@ -117,14 +158,51 @@ function CompetitorPageContent() {
             )}
           </section>
 
+          <section className="mb-12">
+            <h2 className="mb-4 text-sm font-medium uppercase text-fg-muted">
+              Последние изменения
+            </h2>
+            {changes.length === 0 ? (
+              <p className="border-y border-line py-8 text-sm text-fg-muted">
+                Изменений за последнее время нет. Следующая проверка — по
+                расписанию (каждые 6 часов).
+              </p>
+            ) : (
+              <ul className="divide-y divide-line border-t border-line">
+                {changes.map((change) => {
+                  const { label, emphasis } = formatChange(change);
+                  return (
+                    <li
+                      key={change.id}
+                      className="flex items-baseline justify-between gap-4 py-3"
+                    >
+                      <span
+                        className={
+                          emphasis
+                            ? "text-lg font-semibold text-accent"
+                            : "text-sm text-fg"
+                        }
+                      >
+                        {label}
+                      </span>
+                      <span className="shrink-0 text-xs text-fg-muted">
+                        {new Date(change.detected_at).toLocaleString("ru-RU")}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
           <section>
             <h2 className="mb-4 text-sm font-medium uppercase text-fg-muted">
-              Insights
+              Инсайты
             </h2>
             {detail.insights.length === 0 ? (
               <p className="border-y border-line py-8 text-sm text-fg-muted">
-                No insights yet. First check creates a snapshot; the second
-                run with changes generates an insight.
+                Пока нет инсайтов. Первая проверка создаёт снапшот,
+                следующая покажет изменения (обычно через 6 часов).
               </p>
             ) : (
               <ul className="border-t border-line">

@@ -31,7 +31,7 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-noreply@rivalens.ru}
       SMTP_TLS: ${SMTP_TLS:-true}
-      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-false}
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-true}
     depends_on:
       postgres:
         condition: service_healthy

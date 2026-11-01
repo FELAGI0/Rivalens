@@ -1,5 +1,6 @@
 """Auth endpoints: register, login, me."""
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,7 +11,10 @@ from sqlalchemy.orm import Session
 from app.auth.deps import get_current_user
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.db.session import get_session
+from app.demo import seed_demo_for_user
 from app.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -54,6 +58,17 @@ def register(payload: RegisterIn, db: Session = Depends(get_session)) -> User:
         plan="free",
     )
     db.add(user)
+    db.flush()
+
+    # A pre-filled demo competitor so the first visit is not a blank
+    # screen. Failures must never break registration.
+    try:
+        seed_demo_for_user(user.id, db)
+    except Exception as e:
+        logger.warning("demo seed failed for %s: %r", user.id, e)
+        db.rollback()
+        db.add(user)
+
     db.commit()
     db.refresh(user)
     return user
