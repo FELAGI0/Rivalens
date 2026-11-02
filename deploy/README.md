@@ -114,6 +114,33 @@ NOTIFICATIONS_ENABLED=true
 
 После правки `.env.prod`: `docker compose -f docker-compose.prod.yml up -d backend`.
 
+## ЮKassa (оплата тарифов)
+
+1. В `.env.prod` добавить (shopId и секретный ключ — из ЛК ЮKassa,
+   раздел «Интеграция»):
+
+```ini
+YOOKASSA_SHOP_ID=<shopId>
+YOOKASSA_SECRET_KEY=<secretKey>
+YOOKASSA_RETURN_URL=https://rivalens.ru/billing/success
+```
+
+2. После правки: `docker compose -f docker-compose.prod.yml up -d backend`.
+
+3. В ЛК ЮKassa настроить HTTP-уведомления (webhook):
+   - ЛК ЮKassa → **Интеграция → HTTP-уведомления**
+   - URL: `https://rivalens.ru/api/v1/billing/webhook`
+   - События: `payment.succeeded`
+   - Сохранить
+
+Поток оплаты: фронт вызывает `POST /api/v1/billing/checkout` →
+backend создаёт платёж в ЮKassa и отдаёт `confirmation_url` →
+пользователь платит на стороне ЮKassa → ЮKassa шлёт webhook
+`payment.succeeded` → backend активирует тариф. Без webhook'а тариф
+не активируется — платёж есть, тарифа нет.
+
+Важно: secretKey хранить только в `.env.prod` (gitignored).
+
 ## Backups
 
 Ежедневный дамп Postgres с хранением 7 последних копий:

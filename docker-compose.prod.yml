@@ -32,6 +32,10 @@ services:
       SMTP_FROM: ${SMTP_FROM:-noreply@rivalens.ru}
       SMTP_TLS: ${SMTP_TLS:-true}
       NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-true}
+      # YooKassa hosted checkout; empty = checkout returns 502, webhook stays up
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID:-}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY:-}
+      YOOKASSA_RETURN_URL: ${YOOKASSA_RETURN_URL:-https://rivalens.ru/billing/success}
     depends_on:
       postgres:
         condition: service_healthy

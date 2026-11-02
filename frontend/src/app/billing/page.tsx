@@ -8,8 +8,8 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/Button";
 import {
+  checkout,
   getPlan,
-  setPlan,
   UnauthorizedError,
   type Plan,
 } from "@/lib/api";
@@ -21,8 +21,8 @@ const PLANS: {
   features: string;
 }[] = [
   { name: "free", limit: 2, price: "$0", features: "2 конкурента" },
-  { name: "pro", limit: 10, price: "$9/мес", features: "10 конкурентов" },
-  { name: "business", limit: null, price: "$29/мес", features: "Без ограничений" },
+  { name: "pro", limit: 10, price: "900 ₽/мес", features: "10 конкурентов" },
+  { name: "business", limit: null, price: "2900 ₽/мес", features: "Без ограничений" },
 ];
 
 function BillingContent() {
@@ -49,12 +49,12 @@ function BillingContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleSwitch(name: string) {
-    setBusy(name);
+  async function handlePay(planName: string) {
+    setBusy(planName);
     try {
-      await setPlan(name);
-      await refresh();
-      setError(null);
+      const { confirmation_url } = await checkout(planName);
+      // Hosted checkout: leave the app, YooKassa returns to /billing/success
+      window.location.href = confirmation_url;
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         router.replace("/login");
@@ -117,25 +117,36 @@ function BillingContent() {
               </div>
               <p className="mb-1 text-2xl font-semibold">{p.price}</p>
               <p className="mb-5 text-sm text-fg-muted">{p.features}</p>
-              <Button
-                variant={current ? "ghost" : "primary"}
-                onClick={() => void handleSwitch(p.name)}
-                disabled={busy !== null || current}
-                className="w-full"
-              >
-                {busy === p.name
-                  ? "Переключаем…"
-                  : current
-                    ? "Активен"
-                    : `Перейти на ${PLAN_LABELS[p.name] ?? p.name}`}
-              </Button>
+              {p.name === "free" ? (
+                <Button
+                  variant="ghost"
+                  disabled
+                  className="w-full"
+                >
+                  {current ? "Активен" : "Бесплатный"}
+                </Button>
+              ) : (
+                <Button
+                  variant={current ? "ghost" : "primary"}
+                  onClick={() => void handlePay(p.name)}
+                  disabled={busy !== null || current}
+                  className="w-full"
+                >
+                  {busy === p.name
+                    ? "Создаём платёж…"
+                    : current
+                      ? "Активен"
+                      : `Оплатить ${PLAN_LABELS[p.name]} — ${p.price}`}
+                </Button>
+              )}
             </div>
           );
         })}
       </div>
 
-      <p className="mt-10 text-xs text-fg-faint">
-        Оплата скоро. Сейчас тариф переключается бесплатно для теста.
+      <p className="mt-6 text-xs text-fg-faint">
+        Оплата через ЮKassa. Тариф активируется после подтверждения
+        платежа — обычно в течение минуты.
       </p>
 
       <Footer />

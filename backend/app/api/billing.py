@@ -1,4 +1,6 @@
-"""Billing endpoints: plan info and (stub) plan change."""
+"""Billing endpoints: plan info, YooKassa checkout and webhook."""
+
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -6,12 +8,19 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
 from app.billing.limits import PLAN_LIMITS, competitor_count, plan_name
+from app.billing.yookassa import YooKassaError, create_payment
 from app.db.session import get_session
 from app.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
 VALID_PLANS = ("free", "pro", "business")
+
+# Hardcoded rate: $9 ≈ 900 RUB. Fine for an MVP; replace with a real
+# rate lookup before multi-currency support ever matters.
+PLAN_PRICES_RUB = {"pro": 900, "business": 2900}
 
 
 class PlanOut(BaseModel):
@@ -22,6 +31,14 @@ class PlanOut(BaseModel):
 
 class PlanChangeIn(BaseModel):
     plan: str
+
+
+class CheckoutIn(BaseModel):
+    plan: str
+
+
+class CheckoutOut(BaseModel):
+    confirmation_url: str
 
 
 @router.get("/plan", response_model=PlanOut)
@@ -41,7 +58,7 @@ def change_plan(
     db: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> PlanOut:
-    """Stub: switch plan without payment. Real billing lands later."""
+    """Stub: switch plan without payment. Kept for tests and support."""
     if payload.plan not in VALID_PLANS:
         raise HTTPException(status_code=422, detail="unknown plan")
 
@@ -55,3 +72,77 @@ def change_plan(
         competitors_used=competitor_count(db, user),
         competitors_limit=PLAN_LIMITS.get(plan_name(user.plan)),
     )
+
+
+@router.post("/checkout", response_model=CheckoutOut)
+async def checkout(
+    payload: CheckoutIn,
+    db: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> CheckoutOut:
+    """Create a YooKassa payment and return the redirect URL.
+
+    The plan is NOT activated here — only after the payment.succeeded
+    webhook confirms the money actually arrived.
+    """
+    if payload.plan not in PLAN_PRICES_RUB:
+        raise HTTPException(status_code=422, detail="unknown plan")
+    if payload.plan == plan_name(user.plan):
+        raise HTTPException(status_code=422, detail="plan already active")
+
+    try:
+        result = await create_payment(
+            str(user.id), payload.plan, PLAN_PRICES_RUB[payload.plan]
+        )
+    except YooKassaError as e:
+        # Payments are core but not critical: log, tell the user, stay up.
+        logger.warning("checkout failed for user %s: %r", user.id, e)
+        raise HTTPException(status_code=502, detail="payment unavailable")
+
+    return CheckoutOut(confirmation_url=result["confirmation_url"])
+
+
+@router.post("/webhook")
+async def billing_webhook(
+    body: dict, db: Session = Depends(get_session)
+) -> dict:
+    """YooKassa HTTP notification: activate the paid plan.
+
+    No auth: YooKassa's servers call this endpoint. Always 200 OK —
+    otherwise YooKassa retries for 24 hours. Malformed payloads are
+    logged and ignored, never failed.
+    """
+    event = body.get("event")
+    if event != "payment.succeeded":
+        logger.info("webhook ignored: event=%r", event)
+        return {"status": "ok"}
+
+    payment = body.get("object") or {}
+    metadata = payment.get("metadata") or {}
+    user_id = metadata.get("user_id")
+    plan = metadata.get("plan")
+
+    if not user_id or plan not in VALID_PLANS:
+        logger.warning(
+            "webhook succeeded event without usable metadata: %r",
+            metadata,
+        )
+        return {"status": "ok"}
+
+    user = db.get(User, user_id)
+    if user is None:
+        logger.warning("webhook for unknown user %r", user_id)
+        return {"status": "ok"}
+
+    if plan_name(user.plan) == plan:
+        # Idempotency: YooKassa redelivers notifications; the plan is
+        # already active, nothing to do.
+        logger.info("webhook idempotent replay for user %s", user_id)
+        return {"status": "ok"}
+
+    user.plan = plan
+    db.add(user)
+    db.commit()
+    logger.info("user %s upgraded to %s via webhook", user_id, plan)
+
+    return {"status": "ok"}

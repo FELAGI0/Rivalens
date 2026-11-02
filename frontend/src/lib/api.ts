@@ -147,6 +147,16 @@ export async function setPlan(plan: string): Promise<Plan> {
   });
 }
 
+export async function checkout(
+  plan: string,
+): Promise<{ confirmation_url: string }> {
+  return request<{ confirmation_url: string }>("/billing/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan }),
+  });
+}
+
 export async function listCompetitors(): Promise<Competitor[]> {
   return request<Competitor[]>("/competitors");
 }

@@ -40,5 +40,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 7 * 24 * 60
 
+    # YooKassa (hosted checkout)
+    yookassa_shop_id: str = ""
+    yookassa_secret_key: str = ""
+    yookassa_return_url: str = "https://rivalens.ru/billing/success"
+
 
 settings = Settings()
