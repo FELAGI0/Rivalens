@@ -1,9 +1,10 @@
 """Email notifications: insight summaries via SMTP (aiosmtplib).
 
-Disabled by default (notifications_enabled=false). All errors are
-logged and swallowed — email must never break the check pipeline.
+All errors are logged and swallowed — email must never break the check
+pipeline.
 """
 
+import asyncio
 import logging
 from email.message import EmailMessage
 
@@ -14,6 +15,17 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 SITE_URL = "https://rivalens.ru"
+
+SMTP_CONNECT_TIMEOUT = 15
+SMTP_TOTAL_TIMEOUT = 20
+
+
+async def _deliver(smtp: aiosmtplib.SMTP, message: EmailMessage) -> None:
+    """Connect, login and send inside one SMTP session."""
+    async with smtp:
+        if settings.smtp_user:
+            await smtp.login(settings.smtp_user, settings.smtp_password or "")
+        await smtp.send_message(message)
 
 
 async def send_insight_email(
@@ -53,15 +65,25 @@ async def send_insight_email(
         subtype="html",
     )
 
+    # Port 465 is implicit TLS: the server expects the TLS handshake as
+    # the very first bytes. Port 587 (and 25) is plaintext greeting +
+    # STARTTLS upgrade. Choosing the wrong mode makes the server and the
+    # client wait for each other forever — hence the connect timeouts
+    # observed against smtp.yandex.ru:465.
+    implicit_tls = settings.smtp_port == 465
+
+    smtp = aiosmtplib.SMTP(
+        hostname=settings.smtp_host,
+        port=settings.smtp_port,
+        use_tls=implicit_tls,
+        start_tls=not implicit_tls,
+        timeout=SMTP_CONNECT_TIMEOUT,
+    )
+
     try:
-        await aiosmtplib.send(
-            message,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_user or None,
-            password=settings.smtp_password or None,
-            start_tls=settings.smtp_tls,
-        )
+        # Belt and suspenders: aiosmtplib timeout covers connect, this
+        # covers the whole session (login + send) against a wedged server.
+        await asyncio.wait_for(_deliver(smtp, message), timeout=SMTP_TOTAL_TIMEOUT)
         logger.info(
             "insight email sent to %s for competitor %s",
             to_email,

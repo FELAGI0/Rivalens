@@ -1,4 +1,10 @@
-"""Email notification tests: disabled no-op, send path, pipeline resilience."""
+"""Email notification tests: disabled no-op, send path, pipeline resilience.
+
+SMTP is mocked at the class level: aiosmtplib.SMTP is replaced by
+FakeSMTP which records constructor args, login and sent messages.
+"""
+
+import logging
 
 import pytest
 
@@ -8,6 +14,49 @@ from app.notifications.email import send_insight_email
 
 # Same object, old local name used throughout this module.
 settings = live_settings
+
+
+class FakeSMTP:
+    """Records how email.py drives an SMTP session."""
+
+    instances: list["FakeSMTP"] = []
+
+    def __init__(
+        self,
+        hostname: str,
+        port: int,
+        use_tls: bool,
+        start_tls: bool,
+        timeout: float | None,
+    ) -> None:
+        self.hostname = hostname
+        self.port = port
+        self.use_tls = use_tls
+        self.start_tls = start_tls
+        self.timeout = timeout
+        self.logged_in: tuple[str, str] | None = None
+        self.sent_messages: list = []
+        self.fail_on: Exception | None = None
+        FakeSMTP.instances.append(self)
+
+    async def __aenter__(self) -> "FakeSMTP":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    async def login(self, user: str, password: str) -> None:
+        self.logged_in = (user, password)
+
+    async def send_message(self, message) -> None:
+        if self.fail_on is not None:
+            raise self.fail_on
+        self.sent_messages.append(message)
+
+    @classmethod
+    def sent(cls) -> list:
+        """All messages sent across all instances."""
+        return [m for inst in cls.instances for m in inst.sent_messages]
 
 
 @pytest.fixture(autouse=True)
@@ -20,6 +69,16 @@ def _smtp_settings(monkeypatch):
     monkeypatch.setattr(live_settings, "smtp_from", "noreply@rivalens.ru")
     monkeypatch.setattr(live_settings, "smtp_tls", True)
     monkeypatch.setattr(live_settings, "notifications_enabled", False)
+
+
+@pytest.fixture(autouse=True)
+def _fake_smtp(monkeypatch):
+    """Replace aiosmtplib.SMTP with FakeSMTP, reset per test."""
+    import aiosmtplib
+
+    FakeSMTP.instances = []
+    monkeypatch.setattr(aiosmtplib, "SMTP", FakeSMTP)
+    return FakeSMTP
 
 
 def test_email_default_enabled() -> None:
@@ -38,61 +97,43 @@ def test_email_default_enabled() -> None:
     assert fresh.notifications_enabled is True
 
 
-async def test_email_disabled(monkeypatch) -> None:
-    """notifications_enabled=False: no-op, SMTP is never touched."""
-    sent = []
-
-    async def fake_send(*args, **kwargs):
-        sent.append((args, kwargs))
-
-    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", fake_send)
-
+async def test_email_disabled() -> None:
+    """notifications_enabled=False (fixture default): SMTP never touched."""
     await send_insight_email(
         "user@example.com", "Competitor A", "summary", "comp-id"
     )
-    assert sent == []
+    assert FakeSMTP.instances == []
 
 
 async def test_email_no_smtp_host(monkeypatch) -> None:
     """Enabled but smtp_host empty: warning logged, nothing sent."""
     monkeypatch.setattr(settings, "notifications_enabled", True)
 
-    sent = []
-
-    async def fake_send(*args, **kwargs):
-        sent.append((args, kwargs))
-
-    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", fake_send)
-
     import app.notifications.email as email_mod
 
+    previous_host = email_mod.settings.smtp_host
     email_mod.settings.smtp_host = ""
     try:
         await send_insight_email(
             "user@example.com", "Competitor A", "summary", "comp-id"
         )
-        assert sent == []
+        assert FakeSMTP.instances == []
     finally:
-        email_mod.settings.smtp_host = "smtp.example.com"
+        email_mod.settings.smtp_host = previous_host
 
 
 async def test_email_sent(monkeypatch) -> None:
-    """Enabled + configured: aiosmtplib.send is called with the message."""
+    """Enabled + configured: SMTP is driven with the message."""
     monkeypatch.setattr(settings, "notifications_enabled", True)
-
-    captured = {}
-
-    async def fake_send(message, **kwargs):
-        captured["message"] = message
-        captured["kwargs"] = kwargs
-
-    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", fake_send)
 
     await send_insight_email(
         "user@example.com", "Competitor A", "prices changed", "comp-id-1"
     )
 
-    message = captured["message"]
+    assert len(FakeSMTP.instances) == 1
+    smtp = FakeSMTP.instances[0]
+
+    message = smtp.sent_messages[0]
     assert message["To"] == "user@example.com"
     assert message["From"] == "noreply@rivalens.ru"
     assert message["Subject"] == "Rivalens: новые изменения у Competitor A"
@@ -104,27 +145,63 @@ async def test_email_sent(monkeypatch) -> None:
     assert "prices changed" in html_part.get_content()
     assert "/competitors/comp-id-1" in html_part.get_content()
 
-    kwargs = captured["kwargs"]
-    assert kwargs["hostname"] == "smtp.example.com"
-    assert kwargs["port"] == 587
-    assert kwargs["start_tls"] is True
+    # Credentials are used via login, not constructor args.
+    assert smtp.logged_in == ("user@example.com", "secret")
+
+
+async def test_email_smtp_587_uses_starttls(monkeypatch) -> None:
+    """Port 587: plaintext connect + STARTTLS upgrade."""
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "smtp_port", 587)
+
+    await send_insight_email(
+        "user@example.com", "Competitor A", "summary", "comp-id"
+    )
+
+    smtp = FakeSMTP.instances[0]
+    assert smtp.use_tls is False
+    assert smtp.start_tls is True
+    assert smtp.timeout is not None
+
+
+async def test_email_smtp_465_uses_implicit_tls(monkeypatch) -> None:
+    """Port 465: implicit TLS handshake from the first byte.
+
+    Regression test for the connect timeout against smtp.yandex.ru:465 —
+    the server waits for a TLS handshake while a STARTTLS client waits
+    for a plaintext "220 ready".
+    """
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "smtp_port", 465)
+
+    await send_insight_email(
+        "user@example.com", "Competitor A", "summary", "comp-id"
+    )
+
+    smtp = FakeSMTP.instances[0]
+    assert smtp.use_tls is True
+    assert smtp.start_tls is False
+    assert smtp.timeout is not None
 
 
 async def test_email_send_error_is_swallowed(monkeypatch) -> None:
     """A failing SMTP server raises nothing: the error is only logged."""
     monkeypatch.setattr(settings, "notifications_enabled", True)
 
-    async def failing_send(*args, **kwargs):
-        raise ConnectionRefusedError("smtp down")
+    # Make every instance fail on send_message.
+    original_init = FakeSMTP.__init__
 
-    monkeypatch.setattr(
-        "app.notifications.email.aiosmtplib.send", failing_send
-    )
+    def failing_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        self.fail_on = ConnectionRefusedError("smtp down")
+
+    monkeypatch.setattr(FakeSMTP, "__init__", failing_init)
 
     # Must not raise.
     await send_insight_email(
         "user@example.com", "Competitor A", "summary", "comp-id"
     )
+    assert FakeSMTP.sent() == []
 
 
 async def test_pipeline_email_error_does_not_break(
@@ -150,17 +227,20 @@ async def test_pipeline_email_error_does_not_break(
     monkeypatch.setattr(settings, "notifications_enabled", True)
     monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
 
-    async def failing_send(*args, **kwargs):
-        raise ConnectionRefusedError("smtp down")
+    original_init = FakeSMTP.__init__
 
-    monkeypatch.setattr(
-        "app.notifications.email.aiosmtplib.send", failing_send
-    )
+    def failing_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        self.fail_on = ConnectionRefusedError("smtp down")
 
-    fake_fetch.route(PAGE_URL, html=HTML_V1)
-    await run_competitor_check(page.competitor_id, db)
-    fake_fetch.route(PAGE_URL, html=HTML_V2)
-    result = await run_competitor_check(page.competitor_id, db)
+    FakeSMTP.__init__ = failing_init  # noqa: monkeypatch below covers reset
+    try:
+        fake_fetch.route(PAGE_URL, html=HTML_V1)
+        await run_competitor_check(page.competitor_id, db)
+        fake_fetch.route(PAGE_URL, html=HTML_V2)
+        result = await run_competitor_check(page.competitor_id, db)
+    finally:
+        FakeSMTP.__init__ = original_init
 
     assert result["insight_id"] is not None
     insights = db.scalars(
@@ -188,49 +268,37 @@ async def test_pipeline_sends_email_on_insight(
     monkeypatch.setattr(settings, "notifications_enabled", True)
     monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
 
-    sent = []
-
-    async def fake_send(message, **kwargs):
-        sent.append(message)
-
-    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", fake_send)
-
     fake_fetch.route(PAGE_URL, html=HTML_V1)
     await run_competitor_check(page.competitor_id, db)
     # First check: no changes, no insight, no email.
-    assert sent == []
+    assert FakeSMTP.sent() == []
 
     fake_fetch.route(PAGE_URL, html=HTML_V2)
     result = await run_competitor_check(page.competitor_id, db)
 
     assert result["insight_id"] is not None
-    assert len(sent) == 1
-    assert sent[0]["Subject"] == "Rivalens: новые изменения у Competitor A"
+    assert len(FakeSMTP.sent()) == 1
+    assert FakeSMTP.sent()[0]["Subject"] == (
+        "Rivalens: новые изменения у Competitor A"
+    )
 
 
 async def test_email_skipped_when_smtp_empty(monkeypatch, caplog) -> None:
     """Enabled + empty smtp_host: no send, warning logged, no raise."""
-    import logging
-
     monkeypatch.setattr(settings, "notifications_enabled", True)
-
-    sent = []
-
-    async def fake_send(*args, **kwargs):
-        sent.append((args, kwargs))
-
-    monkeypatch.setattr("app.notifications.email.aiosmtplib.send", fake_send)
 
     import app.notifications.email as email_mod
 
     previous_host = email_mod.settings.smtp_host
     email_mod.settings.smtp_host = ""
     try:
-        with caplog.at_level(logging.WARNING, logger="app.notifications.email"):
+        with caplog.at_level(
+            logging.WARNING, logger="app.notifications.email"
+        ):
             await send_insight_email(
                 "user@example.com", "Competitor A", "summary", "comp-id"
             )
-        assert sent == []
+        assert FakeSMTP.instances == []
         assert any(
             "SMTP not configured" in r.message for r in caplog.records
         ), [r.message for r in caplog.records]
