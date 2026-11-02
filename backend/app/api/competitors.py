@@ -1,9 +1,10 @@
 """REST API for competitors: per-user CRUD + manual check + insights/changes."""
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -18,7 +19,7 @@ from app.api.schemas import (
 from app.auth.deps import get_current_user
 from app.billing.limits import can_add_competitor, competitor_count
 from app.db.session import get_session
-from app.models import Change, Competitor, Insight, Page, PageKind, User
+from app.models import Change, Competitor, Insight, Page, PageKind, PageSnapshot, User
 from app.pipeline import run_competitor_check
 
 router = APIRouter(prefix="/competitors")
@@ -32,6 +33,44 @@ def _own_competitor_or_404(
         # 404 (not 403) to not leak other users' competitor ids
         raise HTTPException(status_code=404, detail="competitor not found")
     return competitor
+
+
+def _next_check_at() -> datetime | None:
+    """When the scheduler's run_all_competitors job fires next, if alive."""
+    try:
+        from app.scheduler import _scheduler
+
+        if _scheduler is None:
+            return None
+        job = _scheduler.get_job("run_all_competitors")
+        if job is None or job.next_run_time is None:
+            return None
+        return job.next_run_time
+    except Exception:
+        # The API must not fail because the scheduler is misbehaving.
+        return None
+
+
+def _snapshot_count(db: Session, competitor_id: UUID) -> int:
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(PageSnapshot)
+            .join(Page, PageSnapshot.page_id == Page.id)
+            .where(Page.competitor_id == competitor_id)
+        )
+        or 0
+    )
+
+
+def _last_checked_at(
+    db: Session, competitor_id: UUID
+) -> datetime | None:
+    return db.scalar(
+        select(func.max(PageSnapshot.fetched_at))
+        .join(Page, PageSnapshot.page_id == Page.id)
+        .where(Page.competitor_id == competitor_id)
+    )
 
 
 @router.post("", response_model=CompetitorOut, status_code=201)
@@ -126,6 +165,9 @@ def get_competitor(
         competitor=CompetitorOut.model_validate(competitor),
         pages=[PageOut.model_validate(p) for p in pages],
         insights=[InsightOut.model_validate(i) for i in insights],
+        total_checks=_snapshot_count(db, competitor_id),
+        last_checked_at=_last_checked_at(db, competitor_id),
+        next_check_at=_next_check_at(),
     )
 
 
@@ -153,7 +195,25 @@ async def check_competitor(
 ) -> dict:
     _own_competitor_or_404(db, competitor_id, user)
 
+    pages_checked = (
+        db.scalar(
+            select(func.count())
+            .select_from(Page)
+            .where(
+                Page.competitor_id == competitor_id,
+                Page.active.is_(True),
+            )
+        )
+        or 0
+    )
+
     result = await run_competitor_check(competitor_id, db)
+
+    # First check = exactly one snapshot exists after this run: nothing
+    # to diff against yet, the next run will produce changes.
+    result["pages_checked"] = pages_checked
+    result["is_first_check"] = _snapshot_count(db, competitor_id) <= 1
+    result["next_check_at"] = _next_check_at()
     return result
 
 

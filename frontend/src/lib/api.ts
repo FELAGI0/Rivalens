@@ -43,12 +43,19 @@ export type CheckResult = {
   snapshots_created: number;
   changes_created: number;
   insight_id: string | null;
+  checked_at: string;
+  pages_checked: number;
+  next_check_at: string | null;
+  is_first_check: boolean;
 };
 
 export type CompetitorDetail = {
   competitor: Competitor;
   pages: Page[];
   insights: Insight[];
+  total_checks: number;
+  last_checked_at: string | null;
+  next_check_at: string | null;
 };
 
 export type User = {

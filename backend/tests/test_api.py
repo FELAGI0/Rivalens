@@ -155,3 +155,76 @@ async def test_insights_endpoint(
     insights = response.json()
     assert len(insights) >= 1
     assert insights[0]["summary"] == "test summary"
+
+
+# --- CP19: check result metadata + competitor detail counts ---
+
+
+async def test_check_result_has_metadata(
+    client, db, auth, monkeypatch, fake_fetch
+) -> None:
+    """POST /check response carries the fields the UI banner needs."""
+    _mock_llm_success(monkeypatch)
+    created = (await _create_competitor(client)).json()
+
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    response = await client.post(f"/api/v1/competitors/{created['id']}/check")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert "checked_at" in body
+    assert body["pages_checked"] == 1
+    assert "is_first_check" in body
+    assert "next_check_at" in body  # None in tests: scheduler not started
+
+
+async def test_is_first_check_true(
+    client, db, auth, monkeypatch, fake_fetch
+) -> None:
+    """One snapshot after the run: first check is flagged true."""
+    _mock_llm_success(monkeypatch)
+    created = (await _create_competitor(client)).json()
+
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    response = await client.post(f"/api/v1/competitors/{created['id']}/check")
+    assert response.json()["is_first_check"] is True
+
+
+async def test_is_first_check_false(
+    client, db, auth, monkeypatch, fake_fetch
+) -> None:
+    """Two snapshots: not the first check anymore."""
+    _mock_llm_success(monkeypatch)
+    created = (await _create_competitor(client)).json()
+
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    await client.post(f"/api/v1/competitors/{created['id']}/check")
+    fake_fetch.route(PAGE_URL, html=HTML_V1)  # same content: no changes
+    response = await client.post(f"/api/v1/competitors/{created['id']}/check")
+    body = response.json()
+    assert body["is_first_check"] is False
+    assert body["changes_created"] == 0
+
+
+async def test_competitor_detail_has_counts(
+    client, db, auth, monkeypatch, fake_fetch
+) -> None:
+    """GET /{id} includes total_checks and last_checked_at."""
+    _mock_llm_success(monkeypatch)
+    created = (await _create_competitor(client)).json()
+    competitor_id = created["id"]
+
+    # Before any check: zero checks, no last_checked_at.
+    detail = (await client.get(f"/api/v1/competitors/{competitor_id}")).json()
+    assert detail["total_checks"] == 0
+    assert detail["last_checked_at"] is None
+    assert "next_check_at" in detail
+
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    await client.post(f"/api/v1/competitors/{competitor_id}/check")
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    await client.post(f"/api/v1/competitors/{competitor_id}/check")
+
+    detail = (await client.get(f"/api/v1/competitors/{competitor_id}")).json()
+    assert detail["total_checks"] == 2
+    assert detail["last_checked_at"] is not None

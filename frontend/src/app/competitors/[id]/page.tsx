@@ -52,6 +52,29 @@ function sortChanges(changes: Change[]): Change[] {
   return [...changes].sort((a, b) => rank(a) - rank(b));
 }
 
+function bannerTextFor(result: {
+  is_first_check: boolean;
+  changes_created: number;
+  pages_checked: number;
+  checked_at: string;
+}): string {
+  if (result.is_first_check) {
+    return "Первый снапшот создан. Пока не с чем сравнивать — изменения " +
+      "появятся после следующей проверки (через 6 часов) или когда " +
+      "контент изменится.";
+  }
+  if (result.changes_created === 0) {
+    return `Проверено: ${result.pages_checked} стр., ${new Date(
+      result.checked_at,
+    ).toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+    })}. Изменений нет. Следующая проверка — через 6 часов.`;
+  }
+  return `Проверено: ${result.pages_checked} стр., ` +
+    `${result.changes_created} изменений, инсайт готов. Прокрутите вниз.`;
+}
+
 function CompetitorPageContent() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -63,6 +86,8 @@ function CompetitorPageContent() {
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [checkBanner, setCheckBanner] = useState<string | null>(null);
+  const [checkBannerAccent, setCheckBannerAccent] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!id) return;
@@ -87,6 +112,13 @@ function CompetitorPageContent() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    // The banner self-destructs after 10 seconds.
+    if (checkBanner === null) return;
+    const timer = setTimeout(() => setCheckBanner(null), 10_000);
+    return () => clearTimeout(timer);
+  }, [checkBanner]);
+
   async function handleDeleteConfirmed() {
     setConfirmDelete(false);
     setDeleting(true);
@@ -106,10 +138,13 @@ function CompetitorPageContent() {
 
   async function handleCheckNow() {
     setBusy(true);
+    setCheckBanner(null); // a new check replaces the old banner
     try {
-      await checkCompetitor(id);
+      const result = await checkCompetitor(id);
       await refresh();
       setError(null);
+      setCheckBanner(bannerTextFor(result));
+      setCheckBannerAccent(result.changes_created > 0);
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         router.replace("/login");
@@ -164,6 +199,18 @@ function CompetitorPageContent() {
         </p>
       )}
 
+      {checkBanner && (
+        <p
+          className={`mb-8 rounded-sm border px-4 py-3 text-sm leading-relaxed ${
+            checkBannerAccent
+              ? "border-accent bg-bg-subtle text-accent"
+              : "border-line bg-bg-subtle text-fg-muted"
+          }`}
+        >
+          {checkBanner}
+        </p>
+      )}
+
       {!detail && !error && <p className="text-fg-muted">Загрузка…</p>}
 
       {detail && (
@@ -196,6 +243,11 @@ function CompetitorPageContent() {
               <p className="border-y border-line py-8 text-sm text-fg-muted">
                 Изменений за последнее время нет. Следующая проверка — по
                 расписанию (каждые 6 часов).
+                {detail.total_checks > 0 &&
+                  detail.last_checked_at &&
+                  ` Проверено ${detail.total_checks} раз, последняя — ${new Date(
+                    detail.last_checked_at,
+                  ).toLocaleString("ru-RU")}.`}
               </p>
             ) : (
               <ul className="divide-y divide-line border-t border-line">
@@ -231,8 +283,8 @@ function CompetitorPageContent() {
             </h2>
             {detail.insights.length === 0 ? (
               <p className="border-y border-line py-8 text-sm text-fg-muted">
-                Пока нет инсайтов. Первая проверка создаёт снапшот,
-                следующая покажет изменения (обычно через 6 часов).
+                Пока изменений нет. Мы проверяем каждые 6 часов — если
+                конкурент что-то изменит, пришлём на почту и покажем здесь.
               </p>
             ) : (
               <ul className="border-t border-line">

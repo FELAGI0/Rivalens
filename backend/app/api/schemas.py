@@ -54,9 +54,16 @@ class CheckResult(BaseModel):
     snapshots_created: int
     changes_created: int
     insight_id: UUID | None
+    checked_at: datetime
+    pages_checked: int
+    next_check_at: datetime | None = None
+    is_first_check: bool
 
 
 class CompetitorDetail(BaseModel):
     competitor: CompetitorOut
     pages: list[PageOut]
     insights: list[InsightOut]
+    total_checks: int
+    last_checked_at: datetime | None = None
+    next_check_at: datetime | None = None
