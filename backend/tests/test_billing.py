@@ -132,10 +132,15 @@ async def test_free_limit_two(client, db) -> None:
     assert "Pro" in third.json()["detail"]
 
 
-# --- CP14: YooKassa checkout + webhook ---
+# --- CP14/CP15: YooKassa checkout + webhook ---
 
 
-def _webhook_body(user_id: str, plan: str = "pro", event: str = "payment.succeeded") -> dict:
+def _webhook_body(
+    user_id: str,
+    plan: str = "pro",
+    event: str = "payment.succeeded",
+    metadata: dict | None = None,
+) -> dict:
     return {
         "type": "notification",
         "event": event,
@@ -144,9 +149,29 @@ def _webhook_body(user_id: str, plan: str = "pro", event: str = "payment.succeed
             "status": "succeeded",
             "paid": True,
             "amount": {"value": "900.00", "currency": "RUB"},
-            "metadata": {"user_id": str(user_id), "plan": plan},
+            "metadata": metadata
+            if metadata is not None
+            else {"user_id": str(user_id), "plan": plan},
         },
     }
+
+
+def _mock_verify(
+    monkeypatch, user_id: str, plan: str = "pro", status: str = "succeeded"
+) -> None:
+    """Patch billing.verify_payment: return payment matching the webhook."""
+    from app.billing.yookassa import YooKassaError
+
+    async def fake_verify(payment_id: str) -> dict:
+        if status == "__error__":
+            raise YooKassaError(f"payment {payment_id} not found")
+        return {
+            "id": payment_id,
+            "status": status,
+            "metadata": {"user_id": str(user_id), "plan": plan},
+        }
+
+    monkeypatch.setattr("app.api.billing.verify_payment", fake_verify)
 
 
 async def test_create_payment_mock(client, db, monkeypatch) -> None:
@@ -183,9 +208,10 @@ async def test_checkout_requires_auth(client, db) -> None:
     assert response.status_code == 401
 
 
-async def test_webhook_succeeded(client, db) -> None:
+async def test_webhook_succeeded(client, db, monkeypatch) -> None:
     """payment.succeeded webhook activates the plan, no auth needed."""
     user = make_user(db, "webhook@example.com")
+    _mock_verify(monkeypatch, user.id)
 
     response = await client.post(
         "/api/v1/billing/webhook", json=_webhook_body(user.id)
@@ -199,9 +225,10 @@ async def test_webhook_succeeded(client, db) -> None:
     assert plan_name(fresh.plan) == "pro"
 
 
-async def test_webhook_ignored_for_other_events(client, db) -> None:
+async def test_webhook_ignored_for_other_events(client, db, monkeypatch) -> None:
     """Anything that is not payment.succeeded: 200 OK, plan unchanged."""
     user = make_user(db, "other-event@example.com")
+    _mock_verify(monkeypatch, user.id)
 
     response = await client.post(
         "/api/v1/billing/webhook",
@@ -213,9 +240,10 @@ async def test_webhook_ignored_for_other_events(client, db) -> None:
     assert plan_name(user.plan) == "free"
 
 
-async def test_webhook_idempotent(client, db) -> None:
+async def test_webhook_idempotent(client, db, monkeypatch) -> None:
     """Repeated webhook: still 200, plan still pro, no error."""
     user = make_user(db, "idempotent@example.com")
+    _mock_verify(monkeypatch, user.id)
 
     first = await client.post(
         "/api/v1/billing/webhook", json=_webhook_body(user.id)
@@ -230,3 +258,73 @@ async def test_webhook_idempotent(client, db) -> None:
     assert second.status_code == 200
     db.refresh(user)
     assert plan_name(user.plan) == "pro"
+
+
+# --- CP15: webhook security (verify via YooKassa API) ---
+
+
+async def test_webhook_verifies_payment(client, db, monkeypatch) -> None:
+    """Verified succeeded payment: plan changes."""
+    user = make_user(db, "verify-ok@example.com")
+    _mock_verify(monkeypatch, user.id)
+
+    response = await client.post(
+        "/api/v1/billing/webhook", json=_webhook_body(user.id)
+    )
+    assert response.status_code == 200
+
+    db.refresh(user)
+    assert plan_name(user.plan) == "pro"
+
+
+async def test_webhook_rejects_fake_payment(client, db, monkeypatch) -> None:
+    """Notification claims success, API says canceled: plan NOT changed."""
+    user = make_user(db, "fake-payment@example.com")
+    # Verification returns status=canceled for this payment.
+    _mock_verify(monkeypatch, user.id, status="canceled")
+
+    response = await client.post(
+        "/api/v1/billing/webhook", json=_webhook_body(user.id)
+    )
+    assert response.status_code == 200
+
+    db.refresh(user)
+    assert plan_name(user.plan) == "free"
+
+
+async def test_webhook_rejects_metadata_mismatch(
+    client, db, monkeypatch
+) -> None:
+    """Webhook metadata disagrees with the API's: plan NOT changed."""
+    attacker_target = make_user(db, "victim@example.com")
+    # API truth: the payment belongs to a different user.
+    _mock_verify(monkeypatch, attacker_target.id, plan="pro")
+    # Webhook body: forged metadata points at another user.
+    other_user = make_user(db, "other-victim@example.com")
+
+    response = await client.post(
+        "/api/v1/billing/webhook", json=_webhook_body(other_user.id)
+    )
+    assert response.status_code == 200
+
+    db.refresh(other_user)
+    db.refresh(attacker_target)
+    # Neither user got the plan.
+    assert plan_name(other_user.plan) == "free"
+    assert plan_name(attacker_target.plan) == "free"
+
+
+async def test_webhook_verification_error_is_500(
+    client, db, monkeypatch
+) -> None:
+    """YooKassa API unreachable: 500 so YooKassa retries the webhook."""
+    user = make_user(db, "retry@example.com")
+    _mock_verify(monkeypatch, user.id, status="__error__")
+
+    response = await client.post(
+        "/api/v1/billing/webhook", json=_webhook_body(user.id)
+    )
+    assert response.status_code == 500
+
+    db.refresh(user)
+    assert plan_name(user.plan) == "free"

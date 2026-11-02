@@ -7,8 +7,10 @@ import { useRouter } from "next/navigation";
 import { AuthGate } from "@/components/AuthGate";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
+import { Landing } from "@/components/Landing";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
+import { getToken } from "@/lib/auth";
 import {
   createCompetitor,
   getPlan,
@@ -186,6 +188,24 @@ function HomeContent() {
 }
 
 export default function Home() {
+  const router = useRouter();
+  const [authed, setAuthed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    // Public landing for anonymous visitors; the dashboard behind it.
+    if (!getToken()) {
+      setAuthed(false);
+      return;
+    }
+    setAuthed(true);
+  }, [router]);
+
+  if (authed === null) {
+    return null; // avoid a landing flash before localStorage is read
+  }
+  if (!authed) {
+    return <Landing />;
+  }
   return (
     <AuthGate>
       <HomeContent />

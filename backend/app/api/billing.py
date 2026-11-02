@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
 from app.billing.limits import PLAN_LIMITS, competitor_count, plan_name
-from app.billing.yookassa import YooKassaError, create_payment
+from app.billing.yookassa import YooKassaError, create_payment, verify_payment
 from app.db.session import get_session
 from app.models import User
 
@@ -108,9 +108,13 @@ async def billing_webhook(
 ) -> dict:
     """YooKassa HTTP notification: activate the paid plan.
 
-    No auth: YooKassa's servers call this endpoint. Always 200 OK —
-    otherwise YooKassa retries for 24 hours. Malformed payloads are
-    logged and ignored, never failed.
+    No auth: YooKassa's servers call this endpoint. Notifications are
+    NOT signed by YooKassa, so the payload alone is never trusted —
+    the payment is re-fetched from the YooKassa API and only its
+    status and metadata activate the plan.
+
+    Returns 200 for anything ignored (otherwise YooKassa retries for
+    24 hours) and 500 on transient verification errors (retry welcome).
     """
     event = body.get("event")
     if event != "payment.succeeded":
@@ -121,11 +125,38 @@ async def billing_webhook(
     metadata = payment.get("metadata") or {}
     user_id = metadata.get("user_id")
     plan = metadata.get("plan")
+    payment_id = payment.get("id")
 
-    if not user_id or plan not in VALID_PLANS:
+    if not payment_id or not user_id or plan not in VALID_PLANS:
         logger.warning(
             "webhook succeeded event without usable metadata: %r",
             metadata,
+        )
+        return {"status": "ok"}
+
+    # Verification: trust only the API, never the notification body.
+    try:
+        verified = await verify_payment(payment_id)
+    except YooKassaError as e:
+        # Transient API failure: 500 so YooKassa retries the webhook.
+        logger.warning("webhook verification failed for %s: %r", payment_id, e)
+        raise HTTPException(status_code=500, detail="verification failed")
+
+    if verified.get("status") != "succeeded":
+        logger.warning(
+            "webhook: payment %s not succeeded (status=%r), skip",
+            payment_id,
+            verified.get("status"),
+        )
+        return {"status": "ok"}
+
+    verified_metadata = verified.get("metadata") or {}
+    if (
+        verified_metadata.get("user_id") != user_id
+        or verified_metadata.get("plan") != plan
+    ):
+        logger.warning(
+            "webhook: metadata mismatch for payment %s, skip", payment_id
         )
         return {"status": "ok"}
 
