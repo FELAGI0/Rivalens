@@ -180,6 +180,10 @@ export async function checkCompetitor(id: string): Promise<CheckResult> {
   return request<CheckResult>(`/competitors/${id}/check`, { method: "POST" });
 }
 
+export async function deleteCompetitor(id: string): Promise<void> {
+  await request<void>(`/competitors/${id}`, { method: "DELETE" });
+}
+
 export async function listInsights(id: string): Promise<Insight[]> {
   return request<Insight[]>(`/competitors/${id}/insights`);
 }

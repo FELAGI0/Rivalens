@@ -10,6 +10,7 @@ import { Button } from "@/components/Button";
 import {
   checkout,
   getPlan,
+  setPlan,
   UnauthorizedError,
   type Plan,
 } from "@/lib/api";
@@ -24,6 +25,19 @@ const PLANS: {
   { name: "pro", limit: 10, price: "900 ₽/мес", features: "10 конкурентов" },
   { name: "business", limit: null, price: "2900 ₽/мес", features: "Без ограничений" },
 ];
+
+// Plan hierarchy: downgrade/same via setPlan, upgrade via checkout.
+const PLAN_RANK: Record<string, number> = {
+  free: 0,
+  pro: 1,
+  business: 2,
+};
+
+const PLAN_LABELS: Record<string, string> = {
+  free: "Free",
+  pro: "Pro",
+  business: "Business",
+};
 
 function BillingContent() {
   const router = useRouter();
@@ -50,10 +64,10 @@ function BillingContent() {
   }, []);
 
   async function handlePay(planName: string) {
+    // Upgrade: money moves via YooKassa.
     setBusy(planName);
     try {
       const { confirmation_url } = await checkout(planName);
-      // Hosted checkout: leave the app, YooKassa returns to /billing/success
       window.location.href = confirmation_url;
     } catch (e) {
       if (e instanceof UnauthorizedError) {
@@ -66,11 +80,67 @@ function BillingContent() {
     }
   }
 
-  const PLAN_LABELS: Record<string, string> = {
-    free: "Free",
-    pro: "Pro",
-    business: "Business",
-  };
+  async function handleDowngrade(planName: string) {
+    // Downgrade or re-choose: free, instant.
+    setBusy(planName);
+    try {
+      await setPlan(planName);
+      await refresh();
+      setError(null);
+    } catch (e) {
+      if (e instanceof UnauthorizedError) {
+        router.replace("/login");
+        return;
+      }
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function buttonFor(p: { name: string; price: string }) {
+    if (!plan) {
+      return (
+        <Button variant="ghost" disabled className="w-full">
+          …
+        </Button>
+      );
+    }
+    const current = plan.plan;
+    const isCurrent = current === p.name;
+    const isUpgrade =
+      PLAN_RANK[p.name] !== undefined && PLAN_RANK[p.name] > PLAN_RANK[current];
+
+    if (isCurrent) {
+      return (
+        <Button variant="ghost" disabled className="w-full">
+          Активен
+        </Button>
+      );
+    }
+    if (isUpgrade) {
+      return (
+        <Button
+          variant="primary"
+          onClick={() => void handlePay(p.name)}
+          disabled={busy !== null}
+          className="w-full"
+        >
+          {busy === p.name ? "Создаём платёж…" : `Оплатить ${PLAN_LABELS[p.name]} — ${p.price}`}
+        </Button>
+      );
+    }
+    return (
+      <Button
+        variant="ghost"
+        onClick={() => void handleDowngrade(p.name)}
+        disabled={busy !== null}
+        className="w-full"
+      >
+        {busy === p.name ? "Переключаем…" : `Перейти на ${PLAN_LABELS[p.name]}`}
+      </Button>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
@@ -117,36 +187,14 @@ function BillingContent() {
               </div>
               <p className="mb-1 text-2xl font-semibold">{p.price}</p>
               <p className="mb-5 text-sm text-fg-muted">{p.features}</p>
-              {p.name === "free" ? (
-                <Button
-                  variant="ghost"
-                  disabled
-                  className="w-full"
-                >
-                  {current ? "Активен" : "Бесплатный"}
-                </Button>
-              ) : (
-                <Button
-                  variant={current ? "ghost" : "primary"}
-                  onClick={() => void handlePay(p.name)}
-                  disabled={busy !== null || current}
-                  className="w-full"
-                >
-                  {busy === p.name
-                    ? "Создаём платёж…"
-                    : current
-                      ? "Активен"
-                      : `Оплатить ${PLAN_LABELS[p.name]} — ${p.price}`}
-                </Button>
-              )}
+              {buttonFor(p)}
             </div>
           );
         })}
       </div>
 
       <p className="mt-6 text-xs text-fg-faint">
-        Оплата через ЮKassa. Тариф активируется после подтверждения
-        платежа — обычно в течение минуты.
+        Оплата через ЮKassa. Понижение тарифа — бесплатно и мгновенно.
       </p>
 
       <Footer />

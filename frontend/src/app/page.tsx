@@ -13,8 +13,10 @@ import { Input } from "@/components/Input";
 import { getToken } from "@/lib/auth";
 import {
   createCompetitor,
+  deleteCompetitor,
   getPlan,
   listCompetitors,
+  setPlan,
   UnauthorizedError,
   PaymentRequiredError,
   type Competitor,
@@ -77,6 +79,24 @@ function HomeContent() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleDelete(competitor: Competitor) {
+    const confirmed = window.confirm(
+      `Удалить конкурента «${competitor.name}»? Все снапшоты и инсайты будут удалены.`,
+    );
+    if (!confirmed) return;
+    try {
+      await deleteCompetitor(competitor.id);
+      await refresh();
+      setError(null);
+    } catch (e) {
+      if (e instanceof UnauthorizedError) {
+        router.replace("/login");
+        return;
+      }
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -157,6 +177,13 @@ function HomeContent() {
                 >
                   Открыть
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(competitor)}
+                  className="inline-flex items-center justify-center rounded-sm px-3 py-2 text-sm text-fg-muted transition-colors duration-150 hover:text-accent"
+                >
+                  Удалить
+                </button>
               </div>
             </li>
           ))}

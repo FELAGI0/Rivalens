@@ -18,6 +18,10 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 
 VALID_PLANS = ("free", "pro", "business")
 
+# Plan hierarchy: index = tier. Downgrade/same via POST /billing/plan,
+# upgrade only via checkout (payment).
+PLAN_RANK = {"free": 0, "pro": 1, "business": 2}
+
 # Hardcoded rate: $9 ≈ 900 RUB. Fine for an MVP; replace with a real
 # rate lookup before multi-currency support ever matters.
 PLAN_PRICES_RUB = {"pro": 900, "business": 2900}
@@ -58,9 +62,19 @@ def change_plan(
     db: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> PlanOut:
-    """Stub: switch plan without payment. Kept for tests and support."""
+    """Downgrade or re-choose the current plan, free of charge.
+
+    Upgrades go through checkout: POST /billing/plan with a HIGHER
+    plan than the user's current one is a 422 — money must move via
+    YooKassa before the tier goes up.
+    """
     if payload.plan not in VALID_PLANS:
         raise HTTPException(status_code=422, detail="unknown plan")
+
+    if PLAN_RANK[payload.plan] > PLAN_RANK[plan_name(user.plan)]:
+        raise HTTPException(
+            status_code=422, detail="use checkout for upgrade"
+        )
 
     user.plan = payload.plan
     db.add(user)

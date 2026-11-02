@@ -10,6 +10,7 @@ import { Header } from "@/components/Header";
 import { Button } from "@/components/Button";
 import {
   checkCompetitor,
+  deleteCompetitor,
   getCompetitor,
   listChanges,
   UnauthorizedError,
@@ -83,6 +84,24 @@ function CompetitorPageContent() {
     void refresh();
   }, [refresh]);
 
+  async function handleDelete() {
+    if (!detail) return;
+    const confirmed = window.confirm(
+      `Удалить конкурента «${detail.competitor.name}»? Все снапшоты и инсайты будут удалены.`,
+    );
+    if (!confirmed) return;
+    try {
+      await deleteCompetitor(id);
+      router.replace("/");
+    } catch (e) {
+      if (e instanceof UnauthorizedError) {
+        router.replace("/login");
+        return;
+      }
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function handleCheckNow() {
     setBusy(true);
     try {
@@ -122,6 +141,13 @@ function CompetitorPageContent() {
           >
             ← К списку
           </Link>
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            className="inline-flex items-center justify-center rounded-sm px-3 py-2 text-sm text-fg-muted transition-colors duration-150 hover:text-accent"
+          >
+            Удалить конкурента
+          </button>
           <Button onClick={handleCheckNow} disabled={busy}>
             {busy && <span className="spinner" aria-hidden="true" />}
             {busy ? "Проверяем…" : "Проверить сейчас"}

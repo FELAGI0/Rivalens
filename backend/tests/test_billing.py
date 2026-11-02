@@ -69,6 +69,7 @@ async def test_free_limit_blocks_third(client, db) -> None:
 
 
 async def test_upgrade_unlocks(client, db) -> None:
+    """After a paid upgrade the plan limit opens up."""
     user = make_user(db, "upgrade@example.com")
     headers = {"Authorization": await _auth_header(db, user)}
 
@@ -77,13 +78,11 @@ async def test_upgrade_unlocks(client, db) -> None:
     )
     assert first.status_code == 201
 
-    # Upgrade to pro, then fill past the free limit of 2.
-    response = await client.post(
-        "/api/v1/billing/plan", json={"plan": "pro"}, headers=headers
-    )
-    assert response.status_code == 200
-    assert response.json()["plan"] == "pro"
-    assert response.json()["competitors_limit"] == 10
+    # Paid upgrade to pro (plan set directly, as the webhook would).
+    user.plan = "pro"
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
     for name, host in (
         ("Second", "second.example.com"),
@@ -415,3 +414,121 @@ async def test_verify_payment_404(monkeypatch) -> None:
 
     with pytest.raises(YooKassaError):
         await yookassa_mod.verify_payment("missing")
+
+
+# --- CP16: downgrade via POST /billing/plan, upgrade only via checkout ---
+
+
+async def test_downgrade_business_to_pro(client, db) -> None:
+    user = make_user(db, "dg-b2p@example.com")
+    user.plan = "business"
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    response = await client.post(
+        "/api/v1/billing/plan", json={"plan": "pro"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["plan"] == "pro"
+    assert response.json()["competitors_limit"] == 10
+
+    db.refresh(user)
+    assert plan_name(user.plan) == "pro"
+
+
+async def test_downgrade_pro_to_free(client, db) -> None:
+    user = make_user(db, "dg-p2f@example.com")
+    user.plan = "pro"
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    response = await client.post(
+        "/api/v1/billing/plan", json={"plan": "free"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["plan"] == "free"
+    assert response.json()["competitors_limit"] == 2
+
+    db.refresh(user)
+    assert plan_name(user.plan) == "free"
+
+
+async def test_plan_same_tier_is_allowed(client, db) -> None:
+    """Re-choosing the current plan: no-op 200 (not an upgrade)."""
+    user = make_user(db, "dg-same@example.com")
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    response = await client.post(
+        "/api/v1/billing/plan", json={"plan": "free"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["plan"] == "free"
+
+
+async def test_upgrade_via_plan_rejected(client, db) -> None:
+    """free -> pro via POST /billing/plan: 422, money must move."""
+    user = make_user(db, "up-reject@example.com")
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    response = await client.post(
+        "/api/v1/billing/plan", json={"plan": "pro"}, headers=headers
+    )
+    assert response.status_code == 422
+    assert "checkout" in response.json()["detail"]
+
+    db.refresh(user)
+    assert plan_name(user.plan) == "free"
+
+    # pro -> business is an upgrade too.
+    user.plan = "pro"
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    response = await client.post(
+        "/api/v1/billing/plan", json={"plan": "business"}, headers=headers
+    )
+    assert response.status_code == 422
+    db.refresh(user)
+    assert plan_name(user.plan) == "pro"
+
+
+async def test_upgrade_via_checkout_still_works(
+    client, db, monkeypatch
+) -> None:
+    """checkout -> YooKassa webhook -> plan raises. End to end."""
+    user = make_user(db, "up-checkout@example.com")
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    async def fake_create_payment(user_id, plan, amount_rub):
+        return {
+            "payment_id": "payment-16",
+            "confirmation_url": "https://checkout.example/pay/16",
+        }
+
+    monkeypatch.setattr("app.api.billing.create_payment", fake_create_payment)
+
+    response = await client.post(
+        "/api/v1/billing/checkout", json={"plan": "pro"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["confirmation_url"] == (
+        "https://checkout.example/pay/16"
+    )
+    # Not activated by checkout alone.
+    db.refresh(user)
+    assert plan_name(user.plan) == "free"
+
+    _mock_verify(monkeypatch, user.id)
+
+    webhook = await client.post(
+        "/api/v1/billing/webhook", json=_webhook_body(user.id)
+    )
+    assert webhook.status_code == 200
+
+    db.refresh(user)
+    assert plan_name(user.plan) == "pro"

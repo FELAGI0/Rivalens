@@ -129,6 +129,22 @@ def get_competitor(
     )
 
 
+@router.delete("/{competitor_id}", status_code=204)
+def delete_competitor(
+    competitor_id: UUID,
+    db: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Delete a competitor; pages, snapshots, changes and insights go too.
+
+    Cascades are declared both at DB level (ondelete=CASCADE on every FK
+    down the chain) and ORM level (delete-orphan relationships).
+    """
+    competitor = _own_competitor_or_404(db, competitor_id, user)
+    db.delete(competitor)
+    db.commit()
+
+
 @router.post("/{competitor_id}/check", response_model=CheckResult)
 async def check_competitor(
     competitor_id: UUID,

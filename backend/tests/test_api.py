@@ -98,9 +98,13 @@ async def test_create_competitor(client, db, auth) -> None:
 
 async def test_list_competitors(client, db, auth) -> None:
     await _create_competitor(client)
-    # Free plan allows only 1 competitor; upgrade to list several.
-    upgrade = await client.post("/api/v1/billing/plan", json={"plan": "pro"})
-    assert upgrade.status_code == 200
+    # Free plan allows 2 competitors; a paid upgrade (as the webhook
+    # would set it) unlocks more. POST /billing/plan cannot upgrade.
+    user = auth
+    user.plan = "pro"
+    db.add(user)
+    db.commit()
+    db.refresh(user)
     await client.post(
         "/api/v1/competitors",
         json={"name": "Competitor B", "url": "https://b.example.com"},
