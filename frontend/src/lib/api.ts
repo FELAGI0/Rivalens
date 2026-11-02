@@ -58,6 +58,32 @@ export type CompetitorDetail = {
   next_check_at: string | null;
 };
 
+export type PricePoint = {
+  date: string;
+  prices: string[];
+};
+
+export type PriceChange = {
+  date: string;
+  from: string;
+  to: string;
+  kind: string;
+};
+
+export type PriceHistory = {
+  points: PricePoint[];
+  changes: PriceChange[];
+};
+
+export async function listPriceHistory(
+  id: string,
+  days: number = 30,
+): Promise<PriceHistory> {
+  return request<PriceHistory>(
+    `/competitors/${id}/price-history?days=${days}`,
+  );
+}
+
 export type User = {
   id: string;
   email: string;

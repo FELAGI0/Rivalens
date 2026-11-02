@@ -1,9 +1,9 @@
 """REST API for competitors: per-user CRUD + manual check + insights/changes."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,9 +15,12 @@ from app.api.schemas import (
     CompetitorOut,
     InsightOut,
     PageOut,
+    PriceChange,
+    PriceHistory,
+    PricePoint,
 )
 from app.auth.deps import get_current_user
-from app.billing.limits import can_add_competitor, competitor_count
+from app.billing.limits import can_add_competitor, competitor_count, plan_name
 from app.db.session import get_session
 from app.models import Change, Competitor, Insight, Page, PageKind, PageSnapshot, User
 from app.pipeline import run_competitor_check
@@ -250,3 +253,76 @@ def list_changes(
             .limit(limit)
         ).all()
     )
+
+
+@router.get("/{competitor_id}/price-history", response_model=PriceHistory)
+def get_price_history(
+    competitor_id: UUID,
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> PriceHistory:
+    """Prices per day for the last N days + price changes in the period.
+
+    Points: one per day that has snapshots; prices come from the last
+    snapshot of each page on that day (later snapshots win). Changes:
+    price_added / price_removed rows with value mapped to from/to.
+    """
+    _own_competitor_or_404(db, competitor_id, user)
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    snapshots = db.scalars(
+        select(PageSnapshot)
+        .join(Page, PageSnapshot.page_id == Page.id)
+        .where(Page.competitor_id == competitor_id, PageSnapshot.fetched_at >= since)
+        .order_by(PageSnapshot.fetched_at.asc())
+    ).all()
+
+    # day -> page_id -> last snapshot of that page on that day
+    last_per_day: dict[str, dict[UUID, PageSnapshot]] = {}
+    for snap in snapshots:
+        day = snap.fetched_at.strftime("%Y-%m-%d")
+        last_per_day.setdefault(day, {})[snap.page_id] = snap
+
+    points = [
+        PricePoint(
+            date=day,
+            prices=sorted(
+                {
+                    price
+                    for snap in pages.values()
+                    for price in (snap.entities.get("prices") or [])
+                }
+            ),
+        )
+        for day, pages in sorted(last_per_day.items())
+    ]
+
+    change_rows = db.scalars(
+        select(Change)
+        .join(Page, Change.page_id == Page.id)
+        .where(
+            Page.competitor_id == competitor_id,
+            Change.kind.in_(("price_added", "price_removed")),
+            Change.detected_at >= since,
+        )
+        .order_by(Change.detected_at.desc())
+    ).all()
+
+    changes = []
+    for row in change_rows:
+        value = str(row.payload.get("value") or "")
+        if row.kind == "price_added":
+            from_value, to_value = "", value
+        else:
+            from_value, to_value = value, ""
+        changes.append(
+            PriceChange(
+                date=row.detected_at.strftime("%Y-%m-%d"),
+                from_=from_value,
+                to=to_value,
+                kind=row.kind,
+            )
+        )
+
+    return PriceHistory(points=points, changes=changes)

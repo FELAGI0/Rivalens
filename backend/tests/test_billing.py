@@ -198,7 +198,8 @@ async def test_create_payment_mock(client, db, monkeypatch) -> None:
     assert "confirmation_url" in response.json()
 
     assert captured["plan"] == "pro"
-    assert captured["amount_rub"] == 900
+    # Launch discount: pro charges 490, not the struck-through 900.
+    assert captured["amount_rub"] == 490
     assert captured["user_id"] == str(user.id)
 
 
@@ -363,7 +364,7 @@ async def test_create_payment_request_format(monkeypatch) -> None:
         )
     )
 
-    result = await yookassa_mod.create_payment("user-1", "pro", 900)
+    result = await yookassa_mod.create_payment("user-1", "pro", 490)
 
     assert result["payment_id"] == "payment-1"
     assert result["confirmation_url"] == "https://checkout.example/pay"
@@ -371,7 +372,7 @@ async def test_create_payment_request_format(monkeypatch) -> None:
     request = route.calls[0].request
     # Body is real JSON with the payment fields.
     body = json.loads(request.content)
-    assert body["amount"] == {"value": "900", "currency": "RUB"}
+    assert body["amount"] == {"value": "490", "currency": "RUB"}
     assert body["capture"] is True
     assert body["metadata"] == {"user_id": "user-1", "plan": "pro"}
     assert body["description"] == "Rivalens pro"
@@ -532,3 +533,59 @@ async def test_upgrade_via_checkout_still_works(
 
     db.refresh(user)
     assert plan_name(user.plan) == "pro"
+
+
+# --- CP20: launch discount prices ---
+
+
+async def test_checkout_uses_discount_price(client, db, monkeypatch) -> None:
+    """checkout charges the discount value: 490 for pro, 1990 for business."""
+    user = make_user(db, "discount@example.com")
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    captured = {}
+
+    async def fake_create_payment(user_id, plan, amount_rub):
+        captured[plan] = amount_rub
+        return {
+            "payment_id": f"payment-{plan}",
+            "confirmation_url": f"https://checkout.example/pay/{plan}",
+        }
+
+    monkeypatch.setattr("app.api.billing.create_payment", fake_create_payment)
+
+    response = await client.post(
+        "/api/v1/billing/checkout", json={"plan": "pro"}, headers=headers
+    )
+    assert response.status_code == 200
+
+    # business needs a free slot: user is on free, plan unknown is fine —
+    # checkout only rejects unknown plans and already-active ones.
+    response = await client.post(
+        "/api/v1/billing/checkout", json={"plan": "business"}, headers=headers
+    )
+    assert response.status_code == 200
+
+    assert captured["pro"] == 490
+    assert captured["business"] == 1990
+
+
+async def test_get_plan_returns_discount(client, db) -> None:
+    """GET /billing/plan carries offers with original + discount prices."""
+    user = make_user(db, "offers@example.com")
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    response = await client.get("/api/v1/billing/plan", headers=headers)
+    assert response.status_code == 200
+
+    offers = response.json()["offers"]
+    by_name = {offer["name"]: offer for offer in offers}
+    assert set(by_name) == {"pro", "business"}
+
+    assert by_name["pro"]["original_price"] == 900
+    assert by_name["pro"]["discount_price"] == 490
+    assert by_name["pro"]["limit"] == 10
+
+    assert by_name["business"]["original_price"] == 2900
+    assert by_name["business"]["discount_price"] == 1990
+    assert by_name["business"]["limit"] is None

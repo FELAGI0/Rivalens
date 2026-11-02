@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CompetitorCreate(BaseModel):
@@ -67,3 +67,22 @@ class CompetitorDetail(BaseModel):
     total_checks: int
     last_checked_at: datetime | None = None
     next_check_at: datetime | None = None
+
+
+class PricePoint(BaseModel):
+    date: str
+    prices: list[str]
+
+
+class PriceChange(BaseModel):
+    date: str
+    from_: str = Field(alias="from")
+    to: str
+    kind: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PriceHistory(BaseModel):
+    points: list[PricePoint]
+    changes: list[PriceChange]

@@ -7,7 +7,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
-from app.billing.limits import PLAN_LIMITS, competitor_count, plan_name
+from app.billing.limits import (
+    PLAN_LIMITS,
+    PLAN_PRICES_RUB,
+    competitor_count,
+    plan_name,
+)
 from app.billing.yookassa import YooKassaError, create_payment, verify_payment
 from app.db.session import get_session
 from app.models import User
@@ -22,15 +27,19 @@ VALID_PLANS = ("free", "pro", "business")
 # upgrade only via checkout (payment).
 PLAN_RANK = {"free": 0, "pro": 1, "business": 2}
 
-# Hardcoded rate: $9 ≈ 900 RUB. Fine for an MVP; replace with a real
-# rate lookup before multi-currency support ever matters.
-PLAN_PRICES_RUB = {"pro": 900, "business": 2900}
+
+class PlanOfferOut(BaseModel):
+    name: str
+    original_price: int
+    discount_price: int
+    limit: int | None
 
 
 class PlanOut(BaseModel):
     plan: str
     competitors_used: int
     competitors_limit: int | None
+    offers: list[PlanOfferOut] = []
 
 
 class PlanChangeIn(BaseModel):
@@ -49,10 +58,20 @@ class CheckoutOut(BaseModel):
 def get_plan(
     db: Session = Depends(get_session), user: User = Depends(get_current_user)
 ) -> PlanOut:
+    offers = [
+        PlanOfferOut(
+            name=name,
+            original_price=prices["original"],
+            discount_price=prices["discount"],
+            limit=PLAN_LIMITS.get(name),
+        )
+        for name, prices in PLAN_PRICES_RUB.items()
+    ]
     return PlanOut(
         plan=plan_name(user.plan),
         competitors_used=competitor_count(db, user),
         competitors_limit=PLAN_LIMITS.get(plan_name(user.plan)),
+        offers=offers,
     )
 
 
@@ -106,7 +125,7 @@ async def checkout(
 
     try:
         result = await create_payment(
-            str(user.id), payload.plan, PLAN_PRICES_RUB[payload.plan]
+            str(user.id), payload.plan, PLAN_PRICES_RUB[payload.plan]["discount"]
         )
     except YooKassaError as e:
         # Payments are core but not critical: log, tell the user, stay up.

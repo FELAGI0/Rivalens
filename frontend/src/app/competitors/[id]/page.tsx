@@ -14,9 +14,12 @@ import {
   deleteCompetitor,
   getCompetitor,
   listChanges,
+  listPriceHistory,
   UnauthorizedError,
   type Change,
   type CompetitorDetail,
+  type PriceChange,
+  type PriceHistory,
 } from "@/lib/api";
 
 function formatChange(change: Change): {
@@ -75,6 +78,226 @@ function bannerTextFor(result: {
     `${result.changes_created} изменений, инсайт готов. Прокрутите вниз.`;
 }
 
+function parsePrice(value: string): number | null {
+  const digits = value.replace(/[^\d]/g, "");
+  if (digits === "") return null;
+  return Number(digits);
+}
+
+type ChartPoint = { date: string; value: number };
+
+function chartPoints(history: PriceHistory): ChartPoint[] {
+  // One point per day: the minimum price found that day (the "floor"
+  // of the competitor's offer is what the visitor actually sees).
+  const points: ChartPoint[] = [];
+  for (const point of history.points) {
+    const values = point.prices
+      .map(parsePrice)
+      .filter((v): v is number => v !== null);
+    if (values.length === 0) continue;
+    points.push({ date: point.date, value: Math.min(...values) });
+  }
+  return points;
+}
+
+function formatDateLabel(date: string): string {
+  const [year, month, day] = date.split("-");
+  return `${day}.${month}`;
+}
+
+function formatPriceChangeDate(date: string): string {
+  const [year, month, day] = date.split("-");
+  const months = [
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+  ];
+  return `${Number(day)} ${months[Number(month) - 1]}`;
+}
+
+type PriceChangeItem = {
+  date: string;
+  text: string;
+  accent: boolean;
+};
+
+function buildPriceChangeItems(changes: PriceChange[]): PriceChangeItem[] {
+  // A price swap lands as two rows (price_removed + price_added) on the
+  // same day. Pair them back into a single «3990 ₽ → 4900 ₽ (поднял)».
+  const items: PriceChangeItem[] = [];
+  const pending = [...changes];
+
+  while (pending.length > 0) {
+    const change = pending.shift();
+    if (!change) break;
+
+    const dateLabel = formatPriceChangeDate(change.date);
+
+    if (change.kind === "price_added" && change.from === "") {
+      // Look for a removal on the same date to pair with.
+      const pairIndex = pending.findIndex(
+        (other) =>
+          other.date === change.date && other.kind === "price_removed",
+      );
+      if (pairIndex !== -1) {
+        const removed = pending.splice(pairIndex, 1)[0];
+        const fromValue = parsePrice(removed.from);
+        const toValue = parsePrice(change.to);
+        const moved =
+          fromValue !== null &&
+          toValue !== null &&
+          toValue > fromValue
+            ? "поднял"
+            : "снизил";
+        items.push({
+          date: change.date,
+          text: `${dateLabel}: ${removed.from} → ${change.to} (${moved})`,
+          accent: true,
+        });
+        continue;
+      }
+      items.push({
+        date: change.date,
+        text: `${dateLabel}: появилась цена ${change.to}`,
+        accent: false,
+      });
+      continue;
+    }
+
+    if (change.kind === "price_removed" && change.to === "") {
+      items.push({
+        date: change.date,
+        text: `${dateLabel}: пропала цена ${change.from}`,
+        accent: true,
+      });
+      continue;
+    }
+
+    // Already-paired form straight from the API.
+    if (change.from && change.to) {
+      const fromValue = parsePrice(change.from);
+      const toValue = parsePrice(change.to);
+      const moved =
+        fromValue !== null && toValue !== null && toValue > fromValue
+          ? "поднял"
+          : "снизил";
+      items.push({
+        date: change.date,
+        text: `${dateLabel}: ${change.from} → ${change.to} (${moved})`,
+        accent: true,
+      });
+    }
+  }
+
+  return items;
+}
+
+function PriceChart({ history }: { history: PriceHistory }) {
+  const points = chartPoints(history);
+  if (points.length === 0) {
+    return (
+      <p className="border-y border-line py-8 text-sm text-fg-muted">
+        Пока нет данных о ценах. Они появятся после нескольких проверок
+        страницы с ценами.
+      </p>
+    );
+  }
+
+  const width = 640;
+  const height = 200;
+  const padding = { top: 12, right: 12, bottom: 24, left: 48 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+
+  const values = points.map((p) => p.value);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  // Degenerate range: give the line some vertical breathing room.
+  const span = maxValue - minValue || Math.max(maxValue * 0.1, 1);
+
+  const xStep =
+    points.length > 1 ? innerWidth / (points.length - 1) : 0;
+  const xFor = (i: number) =>
+    points.length > 1
+      ? padding.left + i * xStep
+      : padding.left + innerWidth / 2;
+  const yFor = (value: number) =>
+    padding.top +
+    innerHeight -
+    ((value - minValue) / span) * innerHeight;
+
+  const linePoints = points.map(
+    (p, i) => `${xFor(i)},${yFor(p.value)}`,
+  );
+  const polyline = linePoints.join(" ");
+
+  // 3–4 X labels spread across the points.
+  const labelCount = Math.min(4, points.length);
+  const labelIndices: number[] = [];
+  for (let i = 0; i < labelCount; i++) {
+    labelIndices.push(
+      Math.round((i * (points.length - 1)) / (labelCount - 1 || 1)),
+    );
+  }
+
+  // Y axis: min / mid / max.
+  const yTicks = [minValue, (minValue + maxValue) / 2, maxValue];
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="h-auto w-full"
+      role="img"
+      aria-label="График изменения цены"
+    >
+      {/* Y axis labels */}
+      {yTicks.map((tick) => (
+        <text
+          key={tick}
+          x={padding.left - 8}
+          y={yFor(tick) + 4}
+          textAnchor="end"
+          className="fill-current text-fg-muted"
+          style={{ fontSize: 11 }}
+        >
+          {Math.round(tick).toLocaleString("ru-RU")}
+        </text>
+      ))}
+      {/* X axis labels */}
+      {labelIndices.map((i) => (
+        <text
+          key={i}
+          x={xFor(i)}
+          y={height - 6}
+          textAnchor="middle"
+          className="fill-current text-fg-muted"
+          style={{ fontSize: 11 }}
+        >
+          {formatDateLabel(points[i].date)}
+        </text>
+      ))}
+      {/* The line */}
+      <polyline
+        points={polyline}
+        fill="none"
+        stroke="#E85D3D"
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      {/* The dots */}
+      {points.map((p, i) => (
+        <circle
+          key={p.date}
+          cx={xFor(i)}
+          cy={yFor(p.value)}
+          r={3}
+          fill="#E85D3D"
+        />
+      ))}
+    </svg>
+  );
+}
+
 function CompetitorPageContent() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -82,6 +305,7 @@ function CompetitorPageContent() {
 
   const [detail, setDetail] = useState<CompetitorDetail | null>(null);
   const [changes, setChanges] = useState<Change[]>([]);
+  const [priceHistory, setPriceHistory] = useState<PriceHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -92,12 +316,14 @@ function CompetitorPageContent() {
   const refresh = useCallback(async () => {
     if (!id) return;
     try {
-      const [competitorDetail, changeList] = await Promise.all([
+      const [competitorDetail, changeList, history] = await Promise.all([
         getCompetitor(id),
         listChanges(id),
+        listPriceHistory(id),
       ]);
       setDetail(competitorDetail);
       setChanges(sortChanges(changeList));
+      setPriceHistory(history);
       setError(null);
     } catch (e) {
       if (e instanceof UnauthorizedError) {
@@ -274,6 +500,41 @@ function CompetitorPageContent() {
                   );
                 })}
               </ul>
+            )}
+          </section>
+
+          <section className="mb-12">
+            <h2 className="mb-4 text-sm font-medium uppercase text-fg-muted">
+              История цен (за 30 дней)
+            </h2>
+            {priceHistory &&
+            (priceHistory.points.length > 0 ||
+              priceHistory.changes.length > 0) ? (
+              <>
+                <div className="border-y border-line py-4">
+                  <PriceChart history={priceHistory} />
+                </div>
+                {priceHistory.changes.length > 0 && (
+                  <ul className="divide-y divide-line border-b border-line">
+                    {buildPriceChangeItems(priceHistory.changes).map(
+                      (item, index) => (
+                        <li key={index} className="py-3 text-sm">
+                          {item.accent ? (
+                            <span className="text-accent">{item.text}</span>
+                          ) : (
+                            <span className="text-fg-muted">{item.text}</span>
+                          )}
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <p className="border-y border-line py-8 text-sm text-fg-muted">
+                Пока нет данных о ценах. Они появятся после нескольких
+                проверок страницы с ценами.
+              </p>
             )}
           </section>
 

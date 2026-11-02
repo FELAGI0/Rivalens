@@ -205,3 +205,131 @@ async def test_delete_competitor_requires_auth(client, db) -> None:
         f"/api/v1/competitors/{uuid_mod.uuid4()}"
     )
     assert response.status_code == 401
+
+
+# --- CP20: price history ---
+
+
+def _populate_prices(
+    db, competitor: Competitor, with_data: bool
+) -> None:
+    """Two snapshots on two days with prices, one price_added change.
+
+    The landing page is auto-created by POST /competitors — reuse it.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    page = db.scalars(
+        select(Page).where(Page.competitor_id == competitor.id)
+    ).one()
+
+    if not with_data:
+        db.commit()
+        return
+
+    now = datetime.now(timezone.utc)
+    old_snap = PageSnapshot(
+        page_id=page.id,
+        fetched_at=now - timedelta(days=2, hours=1),
+        content_hash="aaaa",
+        entities={"title": "old", "prices": ["3990 ₽"]},
+    )
+    new_snap = PageSnapshot(
+        page_id=page.id,
+        fetched_at=now,
+        content_hash="bbbb",
+        entities={"title": "new", "prices": ["4900 ₽"]},
+    )
+    db.add_all([old_snap, new_snap])
+    db.flush()
+
+    change = Change(
+        kind="price_added",
+        payload={"value": "4900 ₽"},
+        page_id=page.id,
+        from_snapshot_id=old_snap.id,
+        to_snapshot_id=new_snap.id,
+        detected_at=now,
+    )
+    db.add(change)
+    db.commit()
+
+
+async def test_price_history_empty(client, db) -> None:
+    """No snapshots in the period: empty points and changes."""
+    user = make_user(db, "ph-empty@example.com")
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    created = await _add_competitor(
+        client, headers, "Prices", "https://prices.example.com"
+    )
+    competitor_id = created.json()["id"]
+    _populate_prices(db, db.get(Competitor, competitor_id), with_data=False)
+
+    response = await client.get(
+        f"/api/v1/competitors/{competitor_id}/price-history", headers=headers
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["points"] == []
+    assert body["changes"] == []
+
+
+async def test_price_history_with_data(client, db) -> None:
+    """Two snapshots on two days -> 2 points, 1 price_added change."""
+    user = make_user(db, "ph-data@example.com")
+    headers = {"Authorization": await _auth_header(db, user)}
+
+    created = await _add_competitor(
+        client, headers, "Priced", "https://priced.example.com"
+    )
+    competitor_id = created.json()["id"]
+    _populate_prices(db, db.get(Competitor, competitor_id), with_data=True)
+
+    response = await client.get(
+        f"/api/v1/competitors/{competitor_id}/price-history", headers=headers
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    # Two distinct days -> two points, each with that day's prices.
+    assert len(body["points"]) == 2
+    assert body["points"][0]["prices"] == ["3990 ₽"]
+    assert body["points"][1]["prices"] == ["4900 ₽"]
+    # Points are ordered by date ascending.
+    assert body["points"][0]["date"] < body["points"][1]["date"]
+
+    # One price change in the period.
+    assert len(body["changes"]) == 1
+    change = body["changes"][0]
+    assert change["kind"] == "price_added"
+    assert change["from"] == ""
+    assert change["to"] == "4900 ₽"
+
+
+async def test_price_history_404(client, db) -> None:
+    """Another user's competitor or a missing id: 404."""
+    owner = make_user(db, "ph-owner@example.com")
+    intruder = make_user(db, "ph-intruder@example.com")
+
+    created = await _add_competitor(
+        client,
+        {"Authorization": await _auth_header(db, owner)},
+        "Secret prices",
+        "https://secret-prices.example.com",
+    )
+    competitor_id = created.json()["id"]
+
+    response = await client.get(
+        f"/api/v1/competitors/{competitor_id}/price-history",
+        headers={"Authorization": await _auth_header(db, intruder)},
+    )
+    assert response.status_code == 404
+
+    import uuid as uuid_mod
+
+    response = await client.get(
+        f"/api/v1/competitors/{uuid_mod.uuid4()}/price-history",
+        headers={"Authorization": await _auth_header(db, intruder)},
+    )
+    assert response.status_code == 404

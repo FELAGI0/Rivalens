@@ -20,11 +20,34 @@ const PLANS: {
   name: string;
   limit: number | null;
   price: string;
+  originalPrice: string | null;
+  discountBadge: string | null;
   features: string;
 }[] = [
-  { name: "free", limit: 2, price: "$0", features: "2 конкурента" },
-  { name: "pro", limit: 10, price: "900 ₽/мес", features: "10 конкурентов" },
-  { name: "business", limit: null, price: "2900 ₽/мес", features: "Без ограничений" },
+  {
+    name: "free",
+    limit: 2,
+    price: "$0",
+    originalPrice: null,
+    discountBadge: null,
+    features: "2 конкурента",
+  },
+  {
+    name: "pro",
+    limit: 10,
+    price: "490 ₽/мес",
+    originalPrice: "900 ₽/мес",
+    discountBadge: "−45%",
+    features: "10 конкурентов",
+  },
+  {
+    name: "business",
+    limit: null,
+    price: "1990 ₽/мес",
+    originalPrice: "2900 ₽/мес",
+    discountBadge: "−31%",
+    features: "Без ограничений",
+  },
 ];
 
 // Plan hierarchy: downgrade/same via setPlan, upgrade via checkout.
@@ -188,7 +211,19 @@ function BillingContent() {
                   </span>
                 )}
               </div>
-              <p className="mb-1 text-2xl font-semibold">{p.price}</p>
+              <div className="mb-1">
+                {p.originalPrice && (
+                  <span className="mr-2 text-sm text-fg-muted line-through">
+                    {p.originalPrice}
+                  </span>
+                )}
+                <span className="text-2xl font-semibold">{p.price}</span>
+                {p.discountBadge && (
+                  <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-accent">
+                    {p.discountBadge}
+                  </span>
+                )}
+              </div>
               <p className="mb-5 text-sm text-fg-muted">{p.features}</p>
               {buttonFor(p)}
             </div>

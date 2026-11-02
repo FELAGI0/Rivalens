@@ -94,6 +94,9 @@ const PLANS = [
   {
     name: "Free",
     audience: "Попробовать",
+    price: "$0",
+    originalPrice: null as string | null,
+    discountBadge: null as string | null,
     features:
       "2 конкурента. Письмо при каждом изменении. Хватит, чтобы поймать первое реальное изменение конкурента.",
     cta: "Начать бесплатно",
@@ -101,15 +104,21 @@ const PLANS = [
   {
     name: "Pro",
     audience: "Для бизнеса",
+    price: "490 ₽/мес",
+    originalPrice: "900 ₽/мес",
+    discountBadge: "−45%",
     features:
-      "10 конкурентов, проверка каждые 6 часов, вывод на почту в день изменения — не через неделю. 900 ₽/мес. Окупается первой неупущенной сделкой.",
+      "10 конкурентов, проверка каждые 6 часов, вывод на почту в день изменения — не через неделю. Окупается первой неупущенной сделкой.",
     cta: "Попробовать Pro",
   },
   {
     name: "Business",
     audience: "Для агентств и команд",
+    price: "1990 ₽/мес",
+    originalPrice: "2900 ₽/мес",
+    discountBadge: "−31%",
     features:
-      "Без лимита: все клиенты и все их конкуренты под присмотром, сводка на каждый аккаунт. 2900 ₽/мес.",
+      "Без лимита: все клиенты и все их конкуренты под присмотром, сводка на каждый аккаунт.",
     cta: "Попробовать Business",
   },
 ];
@@ -244,6 +253,19 @@ export function Landing() {
               <p className="mb-3 text-sm uppercase tracking-wide text-accent">
                 {p.audience}
               </p>
+              <div className="mb-2">
+                {p.originalPrice && (
+                  <span className="mr-2 text-sm text-fg-muted line-through">
+                    {p.originalPrice}
+                  </span>
+                )}
+                <span className="text-2xl font-semibold">{p.price}</span>
+                {p.discountBadge && (
+                  <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-accent">
+                    {p.discountBadge}
+                  </span>
+                )}
+              </div>
               <p className="mb-6 text-sm leading-relaxed text-fg-muted">
                 {p.features}
               </p>

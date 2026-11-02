@@ -211,7 +211,8 @@ function HomeContent() {
 
       {plan?.plan === "free" && (
         <p className="mt-10 border-t border-line pt-4 text-xs text-fg-muted">
-          На Free — 2 конкурента. Pro — 10, $9/мес.{" "}
+          На Free — 2 конкурента. Pro — 10 конкурентов, 490 ₽/мес
+          (скидка запуска). Окупается первой сделкой.{" "}
           <Link
             href="/billing"
             className="text-accent underline-offset-4 hover:underline"

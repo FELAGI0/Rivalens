@@ -14,6 +14,14 @@ PLAN_LIMITS: dict[str, int | None] = {
     "business": None,
 }
 
+# Monthly prices in RUB. Launch discount: the checkout charges
+# the "discount" value; "original" is only shown (struck through) in
+# the UI to frame the deal.
+PLAN_PRICES_RUB: dict[str, dict[str, int]] = {
+    "pro": {"original": 900, "discount": 490},
+    "business": {"original": 2900, "discount": 1990},
+}
+
 
 def plan_name(plan: str | UserPlan) -> str:
     """Normalize a plan to its plain string name.
