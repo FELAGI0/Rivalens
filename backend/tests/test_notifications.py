@@ -10,7 +10,7 @@ import pytest
 
 from app.config import Settings
 from app.config import settings as live_settings
-from app.notifications.email import send_insight_email
+from app.notifications.email import send_digest_email, send_insight_email
 
 # Same object, old local name used throughout this module.
 settings = live_settings
@@ -223,9 +223,11 @@ async def test_pipeline_email_error_does_not_break(
     _mock_llm_success(monkeypatch)
     page = _make_competitor_with_page(db)
 
-    # Notifications on, SMTP broken.
+    # Notifications on, SMTP broken. Instant mode: email right in the
+    # pipeline (digest mode defers to the weekly job).
     monkeypatch.setattr(settings, "notifications_enabled", True)
     monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "email_mode", "instant")
 
     original_init = FakeSMTP.__init__
 
@@ -267,6 +269,7 @@ async def test_pipeline_sends_email_on_insight(
 
     monkeypatch.setattr(settings, "notifications_enabled", True)
     monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "email_mode", "instant")
 
     fake_fetch.route(PAGE_URL, html=HTML_V1)
     await run_competitor_check(page.competitor_id, db)
@@ -304,3 +307,126 @@ async def test_email_skipped_when_smtp_empty(monkeypatch, caplog) -> None:
         ), [r.message for r in caplog.records]
     finally:
         email_mod.settings.smtp_host = previous_host
+
+
+# --- CP18: weekly digest ---
+
+
+async def test_digest_email_sent(monkeypatch) -> None:
+    """Digest: one email, all items in the body, links to competitors."""
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+
+    items = [
+        {
+            "competitor_name": "Competitor A",
+            "summary": "summary A",
+            "competitor_id": "comp-a",
+        },
+        {
+            "competitor_name": "Competitor B",
+            "summary": "summary B",
+            "competitor_id": "comp-b",
+        },
+    ]
+
+    await send_digest_email("user@example.com", items)
+
+    assert len(FakeSMTP.instances) == 1
+    smtp = FakeSMTP.instances[0]
+    assert len(smtp.sent_messages) == 1
+
+    message = smtp.sent_messages[0]
+    assert message["To"] == "user@example.com"
+    assert message["Subject"] == "Rivalens: дайджест за неделю (2 изменений)"
+
+    html_part = message.get_body(preferencelist=("html",))
+    assert html_part is not None
+    html = html_part.get_content()
+    assert "Дайджест за неделю" in html
+    assert "Competitor A" in html
+    assert "Competitor B" in html
+    assert "summary A" in html
+    assert "summary B" in html
+    assert "/competitors/comp-a" in html
+    assert "/competitors/comp-b" in html
+
+
+async def test_digest_skipped_when_empty(monkeypatch) -> None:
+    """No insights this week: nothing sent at all."""
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+
+    await send_digest_email("user@example.com", [])
+
+    assert FakeSMTP.instances == []
+
+
+async def test_digest_skipped_when_disabled() -> None:
+    """notifications_enabled=False (fixture default): no SMTP touched."""
+    await send_digest_email("user@example.com", [{"x": 1}])
+    assert FakeSMTP.instances == []
+
+
+async def test_pipeline_instant_mode_sends_email(
+    db, fake_fetch, monkeypatch
+) -> None:
+    """email_mode=instant: send_insight_email runs inside the pipeline."""
+    from app.pipeline import run_competitor_check
+    from tests.test_pipeline import (  # noqa: F401 — reuse helpers
+        HTML_V1,
+        HTML_V2,
+        PAGE_URL,
+        _make_competitor_with_page,
+        _mock_llm_success,
+    )
+
+    _mock_llm_success(monkeypatch)
+    page = _make_competitor_with_page(db)
+
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "email_mode", "instant")
+
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    await run_competitor_check(page.competitor_id, db)
+    fake_fetch.route(PAGE_URL, html=HTML_V2)
+    result = await run_competitor_check(page.competitor_id, db)
+
+    assert result["insight_id"] is not None
+    assert len(FakeSMTP.sent()) == 1
+
+
+async def test_pipeline_digest_mode_does_not_send_immediately(
+    db, fake_fetch, monkeypatch
+) -> None:
+    """email_mode=digest: no email now, insight persisted for Monday."""
+    from sqlalchemy import select
+
+    from app.models import Insight
+    from app.pipeline import run_competitor_check
+    from tests.test_pipeline import (  # noqa: F401 — reuse helpers
+        HTML_V1,
+        HTML_V2,
+        PAGE_URL,
+        _make_competitor_with_page,
+        _mock_llm_success,
+    )
+
+    _mock_llm_success(monkeypatch)
+    page = _make_competitor_with_page(db)
+
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "email_mode", "digest")
+
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    await run_competitor_check(page.competitor_id, db)
+    fake_fetch.route(PAGE_URL, html=HTML_V2)
+    result = await run_competitor_check(page.competitor_id, db)
+
+    assert result["insight_id"] is not None
+    # No email — the digest job will collect it later.
+    assert FakeSMTP.sent() == []
+    insights = db.scalars(
+        select(Insight).where(Insight.competitor_id == page.competitor_id)
+    ).all()
+    assert len(insights) == 1

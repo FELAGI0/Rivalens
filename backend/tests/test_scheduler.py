@@ -189,3 +189,152 @@ async def test_run_all_with_auth(api_client, db, session_factory_override) -> No
     body = response.json()
     assert body["checked"] == 0
     assert body["failed"] == 0
+
+
+# --- CP18: weekly digest job ---
+
+
+async def test_weekly_digest_sends(
+    db, session_factory_override, monkeypatch
+) -> None:
+    """Users with insights this week get one digest email each."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.models import Insight, User
+
+    user = User(
+        email="digest@example.com",
+        password_hash="x",
+    )
+    db.add(user)
+    db.flush()
+    comp = _make_competitor(db, "DigestComp", "https://digest.example.com")
+    comp.user_id = user.id
+    db.add(comp)
+    db.flush()
+
+    now = datetime.now(UTC)
+    # Explicit created_at: server_default=func.now() would give both
+    # rows the same timestamp and the "newest wins" order is then
+    # undefined.
+    db.add_all(
+        [
+            Insight(
+                competitor_id=comp.id,
+                period_start=now,
+                period_end=now,
+                summary="first insight",
+                change_ids=[],
+                created_at=now - timedelta(hours=1),
+            ),
+            Insight(
+                competitor_id=comp.id,
+                period_start=now,
+                period_end=now,
+                summary="second insight",
+                change_ids=[],
+                created_at=now,
+            ),
+        ]
+    )
+    # Old insight: outside the 7-day window, must not be digested.
+    db.add(
+        Insight(
+            competitor_id=comp.id,
+            period_start=now - timedelta(days=30),
+            period_end=now - timedelta(days=30),
+            summary="old insight",
+            change_ids=[],
+            created_at=now - timedelta(days=30),
+        )
+    )
+    db.commit()
+
+    sent: list[tuple[str, list[dict]]] = []
+
+    async def fake_send_digest(to_email, items):
+        sent.append((to_email, items))
+
+    # send_weekly_digests imports send_digest_email at call time via
+    # "from app.notifications import send_digest_email" — patch the
+    # source module, not app.scheduler.
+    import app.notifications as notifications_mod
+    import app.scheduler as scheduler_mod
+
+    monkeypatch.setattr(
+        notifications_mod, "send_digest_email", fake_send_digest
+    )
+
+    result = await scheduler_mod.send_weekly_digests()
+
+    assert result == {"sent": 1, "skipped": 0}
+    assert len(sent) == 1
+    to_email, items = sent[0]
+    assert to_email == "digest@example.com"
+    # Two insights, one competitor -> one item (the newest wins).
+    assert len(items) == 1
+    assert items[0]["competitor_name"] == "DigestComp"
+    assert items[0]["summary"] == "second insight"
+    assert items[0]["competitor_id"] == str(comp.id)
+
+
+async def test_weekly_digest_skips_empty_users(
+    db, session_factory_override, monkeypatch
+) -> None:
+    """A user without insights this week: skipped, nothing sent."""
+    from app.models import User
+
+    db.add(User(email="quiet@example.com", password_hash="x"))
+    db.commit()
+
+    sent: list = []
+
+    async def fake_send_digest(to_email, items):
+        sent.append((to_email, items))
+
+    import app.notifications as notifications_mod
+    import app.scheduler as scheduler_mod
+
+    monkeypatch.setattr(
+        notifications_mod, "send_digest_email", fake_send_digest
+    )
+
+    result = await scheduler_mod.send_weekly_digests()
+    assert result == {"sent": 0, "skipped": 1}
+    assert sent == []
+
+
+def test_weekly_digest_job_registered(monkeypatch) -> None:
+    """start_scheduler registers the weekly_digest cron job."""
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    registered: list[dict] = []
+
+    class FakeScheduler:
+        def add_job(self, func, trigger=None, **kwargs):
+            registered.append(
+                {"func": func, "trigger": trigger, **kwargs}
+            )
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(
+        "app.scheduler.AsyncIOScheduler", FakeScheduler
+    )
+    import app.scheduler as scheduler_mod
+
+    scheduler_mod._scheduler = None  # reset the module singleton
+    try:
+        scheduler_mod.start_scheduler()
+    finally:
+        scheduler_mod._scheduler = None
+
+    digest_jobs = [j for j in registered if j["id"] == "weekly_digest"]
+    assert len(digest_jobs) == 1
+    job = digest_jobs[0]
+    assert job["func"].__name__ == "send_weekly_digests"
+    # CronTrigger with the configured day/hour.
+    trigger = job["trigger"]
+    assert "CronTrigger" in type(trigger).__name__
+    assert trigger.fields[4] is not None  # day_of_week field exists

@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # On by default: notifications are the core loop of a monitoring
     # product. A missing SMTP_HOST degrades to a logged warning.
     notifications_enabled: bool = True
+    # Email pacing: "digest" = one weekly email per user (default —
+    # one email per change spams users into muting notifications),
+    # "instant" = an email per insight, as before.
+    email_mode: str = "digest"
+    digest_day: int = 0  # 0 = Monday (APScheduler day_of_week)
+    digest_hour: int = 9  # 09:00 UTC
 
     # JWT auth
     jwt_secret: str

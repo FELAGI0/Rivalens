@@ -93,3 +93,81 @@ async def send_insight_email(
         # Deliberately swallowed: the insight is already saved; a broken
         # SMTP server must not fail the pipeline run.
         logger.warning("email send failed: %r", e)
+
+
+async def send_digest_email(
+    to_email: str,
+    items: list[dict],
+) -> None:
+    """Send the weekly digest: one email with all insights of the week.
+
+    items: [{competitor_name, summary, competitor_id}]. An empty list
+    sends nothing. Errors are logged and swallowed, like everywhere
+    in notifications.
+    """
+    if not settings.notifications_enabled:
+        return
+    if not settings.smtp_host:
+        logger.warning("SMTP not configured, skipping digest to %s", to_email)
+        return
+    if not items:
+        return
+
+    parts: list[str] = []
+    for i, item in enumerate(items):
+        border = (
+            ' style="border-top: 1px solid #ddd; margin-top: 24px;'
+            ' padding-top: 24px;"'
+            if i > 0
+            else ""
+        )
+        parts.append(
+            f"""
+    <div{border}>
+      <h3 style="margin: 0 0 8px;">{item["competitor_name"]}</h3>
+      <p style="margin: 0; line-height: 1.5;">{item["summary"]}</p>
+      <p style="margin: 8px 0 0;">
+        <a href="{SITE_URL}/competitors/{item["competitor_id"]}">
+          Открыть →
+        </a>
+      </p>
+    </div>"""
+        )
+
+    message = EmailMessage()
+    message["From"] = settings.smtp_from
+    message["To"] = to_email
+    message["Subject"] = (
+        f"Rivalens: дайджест за неделю ({len(items)} изменений)"
+    )
+    message.set_content(
+        "\n\n".join(
+            f'{item["competitor_name"]}\n{item["summary"]}' for item in items
+        )
+    )
+    message.add_alternative(
+        f"""\
+<html>
+  <body style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+    <h2 style="margin-bottom: 24px;">Дайджест за неделю</h2>
+    {''.join(parts)}
+  </body>
+</html>
+""",
+        subtype="html",
+    )
+
+    implicit_tls = settings.smtp_port == 465
+    smtp = aiosmtplib.SMTP(
+        hostname=settings.smtp_host,
+        port=settings.smtp_port,
+        use_tls=implicit_tls,
+        start_tls=not implicit_tls,
+        timeout=SMTP_CONNECT_TIMEOUT,
+    )
+
+    try:
+        await asyncio.wait_for(_deliver(smtp, message), timeout=SMTP_TOTAL_TIMEOUT)
+        logger.info("digest email sent to %s (%d items)", to_email, len(items))
+    except Exception as e:
+        logger.warning("digest email send failed: %r", e)

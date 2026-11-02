@@ -135,17 +135,26 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
     # email errors are caught inside send_insight_email and must never
     # affect the pipeline result.
     if insight_id is not None:
-        try:
-            user = db.get(User, competitor.user_id)
-            if user is not None and user.email:
-                await send_insight_email(
-                    to_email=user.email,
-                    competitor_name=competitor.name,
-                    summary=summary,
-                    competitor_id=str(competitor.id),
-                )
-        except Exception as e:
-            logger.warning("email notification failed: %r", e)
+        from app.config import settings
+
+        if settings.email_mode == "instant":
+            try:
+                user = db.get(User, competitor.user_id)
+                if user is not None and user.email:
+                    await send_insight_email(
+                        to_email=user.email,
+                        competitor_name=competitor.name,
+                        summary=summary,
+                        competitor_id=str(competitor.id),
+                    )
+            except Exception as e:
+                logger.warning("email notification failed: %r", e)
+        else:
+            # digest mode: the insight is already in the DB; the weekly
+            # digest job (scheduler) collects it and emails on Monday.
+            logger.info(
+                "digest mode: insight %s queued for weekly digest", insight_id
+            )
     else:
         logger.info(
             "llm: competitor %s skipped, no changes", competitor.id

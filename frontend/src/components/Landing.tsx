@@ -93,18 +93,24 @@ const STEPS = [
 const PLANS = [
   {
     name: "Free",
-    price: "$0",
-    features: "2 конкурента, проверка раз в день",
+    audience: "Попробовать",
+    features:
+      "2 конкурента. Письмо при каждом изменении. Хватит, чтобы поймать первое реальное изменение конкурента.",
+    cta: "Начать бесплатно",
   },
   {
     name: "Pro",
-    price: "$9/мес (~900 ₽)",
-    features: "10 конкурентов, каждые 6 часов",
+    audience: "Для бизнеса",
+    features:
+      "10 конкурентов, проверка каждые 6 часов, вывод на почту в день изменения — не через неделю. 900 ₽/мес. Окупается первой неупущенной сделкой.",
+    cta: "Попробовать Pro",
   },
   {
     name: "Business",
-    price: "$29/мес (~2900 ₽)",
-    features: "Без лимита конкурентов",
+    audience: "Для агентств и команд",
+    features:
+      "Без лимита: все клиенты и все их конкуренты под присмотром, сводка на каждый аккаунт. 2900 ₽/мес.",
+    cta: "Попробовать Business",
   },
 ];
 
@@ -132,12 +138,14 @@ export function Landing() {
       {/* Hero */}
       <section className="mb-24">
         <h1 className="mb-6 max-w-2xl font-serif text-4xl font-semibold leading-tight md:text-5xl">
-          Следим за конкурентами. Присылаем выводы, а не сырые диффы.
+          Конкурент снизил цену в понедельник. Клиент рассказал вам об
+          этом в четверг.
         </h1>
         <p className="mb-10 max-w-xl leading-relaxed text-fg-muted">
-          Rivalens каждый день проверяет сайты конкурентов: цены, новые
-          страницы, вакансии. Если что-то изменилось — объясняем на русском
-          и присылаем на почту.
+          Rivalens проверяет сайты конкурентов каждые 6 часов и присылает
+          готовый вывод: «конкурент снизил цену на 19%, появился
+          корпоративный раздел, нанял трёх сейлзов» — чтобы вы реагировали
+          в тот же день.
         </p>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Link
@@ -178,17 +186,29 @@ export function Landing() {
       {/* Пример инсайта */}
       <section className="mb-24">
         <h2 className="mb-10 text-sm font-medium uppercase tracking-wide text-fg-muted">
-          Пример инсайта
+          Как это выглядит в письме
         </h2>
         <figure className="border-y border-line py-10 md:px-8">
-          <blockquote className="mb-6 max-w-2xl font-serif text-xl leading-relaxed md:text-2xl">
-            «На главной Habr ротация ленты: ушли статьи про AI-генерацию
-            ассетов, вместо них — тексты про SEO под нейросети и
-            «Энтропию индустрии». Смещение интереса аудитории — от научпопа
-            к AI-SEO/LLM-видимости.»
+          <blockquote className="mb-6 max-w-2xl font-serif text-xl italic leading-relaxed md:text-2xl">
+            «Конкурент снизил базовый тариф с 4 900 ₽ до 3 990 ₽ (−19%)
+            на странице «Тарифы». Ваш сопоставимый пакет — 4 500 ₽:
+            преимущество по цене у вас. Окно для ответа — 2–3 дня, пока
+            они не разослали новость.»
           </blockquote>
           <figcaption className="text-sm text-fg-muted">
-            Rivalens, 2 ноября 2026, конкурент: habr.com
+            Rivalens, письмо утром 12 мая, конкурент: severstal-tur.ru
+          </figcaption>
+        </figure>
+
+        <figure className="mt-8 border-y border-line py-10 md:px-8">
+          <blockquote className="mb-6 max-w-2xl font-serif text-lg italic leading-relaxed md:text-xl">
+            «У конкурента появился раздел «Корпоративным клиентам» с
+            формой заявки на демо. Это вход в enterprise-сегмент — ваш
+            крупнейший клиент в их прицеле. У вас есть пара недель,
+            чтобы подготовить контр-предложение.»
+          </blockquote>
+          <figcaption className="text-sm text-fg-muted">
+            Rivalens, 3 июня, конкурент: logistpro.ru
           </figcaption>
         </figure>
       </section>
@@ -217,22 +237,26 @@ export function Landing() {
         </h2>
         <div className="grid gap-10 md:grid-cols-3">
           {PLANS.map((p) => (
-            <div key={p.name}>
+            <div key={p.name} className="flex flex-col">
               <h3 className="mb-1 font-serif text-xl font-semibold">
                 {p.name}
               </h3>
-              <p className="mb-2 text-lg font-semibold">{p.price}</p>
-              <p className="text-sm text-fg-muted">{p.features}</p>
+              <p className="mb-3 text-sm uppercase tracking-wide text-accent">
+                {p.audience}
+              </p>
+              <p className="mb-6 text-sm leading-relaxed text-fg-muted">
+                {p.features}
+              </p>
+              <div className="mt-auto">
+                <Link
+                  href="/register"
+                  className="inline-flex items-center justify-center rounded-sm border border-line px-5 py-2.5 text-sm font-medium text-fg transition-colors duration-150 hover:border-fg-muted hover:bg-bg-subtle"
+                >
+                  {p.cta}
+                </Link>
+              </div>
             </div>
           ))}
-        </div>
-        <div className="mt-10">
-          <Link
-            href="/register"
-            className="inline-flex items-center justify-center rounded-sm bg-accent px-6 py-3 text-sm font-medium text-white transition-colors duration-150 hover:bg-accent-hover"
-          >
-            Начать бесплатно
-          </Link>
         </div>
       </section>
 

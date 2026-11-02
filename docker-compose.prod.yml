@@ -32,6 +32,9 @@ services:
       SMTP_FROM: ${SMTP_FROM:-noreply@rivalens.ru}
       SMTP_TLS: ${SMTP_TLS:-true}
       NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-true}
+      EMAIL_MODE: ${EMAIL_MODE:-digest}
+      DIGEST_DAY: ${DIGEST_DAY:-0}
+      DIGEST_HOUR: ${DIGEST_HOUR:-9}
       # YooKassa hosted checkout; empty = checkout returns 502, webhook stays up
       YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID:-}
       YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY:-}
