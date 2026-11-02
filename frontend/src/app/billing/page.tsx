@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/AuthGate";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/Button";
@@ -44,6 +45,7 @@ function BillingContent() {
   const [plan, setPlanState] = useState<Plan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [downgrade, setDowngrade] = useState<string | null>(null);
 
   async function refresh() {
     try {
@@ -81,7 +83,8 @@ function BillingContent() {
   }
 
   async function handleDowngrade(planName: string) {
-    // Downgrade or re-choose: free, instant.
+    // Downgrade or re-choose: free, instant. Behind a confirm dialog.
+    setDowngrade(null);
     setBusy(planName);
     try {
       await setPlan(planName);
@@ -133,7 +136,7 @@ function BillingContent() {
     return (
       <Button
         variant="ghost"
-        onClick={() => void handleDowngrade(p.name)}
+        onClick={() => setDowngrade(p.name)}
         disabled={busy !== null}
         className="w-full"
       >
@@ -198,6 +201,19 @@ function BillingContent() {
       </p>
 
       <Footer />
+
+      <ConfirmDialog
+        open={downgrade !== null}
+        title={`Понизить тариф до ${downgrade ? PLAN_LABELS[downgrade] : ""}?`}
+        message={
+          downgrade === "free"
+            ? "Лимит конкурентов уменьшится до 2. Уже добавленные сверх лимита не удалятся, но новые добавить будет нельзя."
+            : "Лимит конкурентов уменьшится до 10. Уже добавленные сверх лимита не удалятся, но новые добавить будет нельзя."
+        }
+        confirmLabel="Понизить"
+        onCancel={() => setDowngrade(null)}
+        onConfirm={() => downgrade && void handleDowngrade(downgrade)}
+      />
     </main>
   );
 }

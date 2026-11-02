@@ -92,8 +92,22 @@ async function request<T>(
     throw new PaymentRequiredError("plan limit reached");
   }
   if (!response.ok) {
+    // Prefer the backend's detail field, fall back to raw body text.
     const text = await response.text().catch(() => "");
-    throw new Error(`API error ${response.status}: ${text}`);
+    let detail = text;
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as { detail?: string };
+        if (parsed.detail) detail = parsed.detail;
+      } catch {
+        // not JSON — keep raw text
+      }
+    }
+    throw new Error(`API error ${response.status}: ${detail}`);
+  }
+  // 204 No Content (and empty 200s) have no body to parse.
+  if (response.status === 204) {
+    return undefined as T;
   }
   return response.json() as Promise<T>;
 }

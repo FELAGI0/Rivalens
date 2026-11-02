@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { AuthGate } from "@/components/AuthGate";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/Button";
@@ -60,6 +61,8 @@ function CompetitorPageContent() {
   const [changes, setChanges] = useState<Change[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!id) return;
@@ -84,21 +87,20 @@ function CompetitorPageContent() {
     void refresh();
   }, [refresh]);
 
-  async function handleDelete() {
-    if (!detail) return;
-    const confirmed = window.confirm(
-      `Удалить конкурента «${detail.competitor.name}»? Все снапшоты и инсайты будут удалены.`,
-    );
-    if (!confirmed) return;
+  async function handleDeleteConfirmed() {
+    setConfirmDelete(false);
+    setDeleting(true);
     try {
       await deleteCompetitor(id);
-      router.replace("/");
+      router.replace("/"); // client-side: no full page reload
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         router.replace("/login");
         return;
       }
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -143,10 +145,11 @@ function CompetitorPageContent() {
           </Link>
           <button
             type="button"
-            onClick={() => void handleDelete()}
-            className="inline-flex items-center justify-center rounded-sm px-3 py-2 text-sm text-fg-muted transition-colors duration-150 hover:text-accent"
+            onClick={() => setConfirmDelete(true)}
+            disabled={deleting}
+            className="inline-flex items-center justify-center rounded-sm px-3 py-2 text-sm text-fg-muted transition-colors duration-150 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Удалить конкурента
+            {deleting ? "Удаляем…" : "Удалить конкурента"}
           </button>
           <Button onClick={handleCheckNow} disabled={busy}>
             {busy && <span className="spinner" aria-hidden="true" />}
@@ -251,6 +254,16 @@ function CompetitorPageContent() {
       )}
 
       <Footer />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Удалить конкурента?"
+        message={`«${detail?.competitor.name ?? ""}» — все снапшоты и инсайты будут удалены безвозвратно.`}
+        confirmLabel="Удалить"
+        variant="danger"
+        onConfirm={() => void handleDeleteConfirmed()}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </main>
   );
 }

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/AuthGate";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Landing } from "@/components/Landing";
@@ -32,6 +33,8 @@ function HomeContent() {
   const [error, setError] = useState<string | null>(null);
   const [limitHit, setLimitHit] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Set<string>>(new Set());
 
   async function refresh() {
     try {
@@ -82,23 +85,31 @@ function HomeContent() {
     }
   }
 
-  async function handleDelete(competitor: Competitor) {
-    const confirmed = window.confirm(
-      `Удалить конкурента «${competitor.name}»? Все снапшоты и инсайты будут удалены.`,
-    );
-    if (!confirmed) return;
+  async function handleDeleteConfirmed(id: string) {
+    setConfirmId(null);
+    setDeleting((prev) => new Set(prev).add(id));
     try {
-      await deleteCompetitor(competitor.id);
-      await refresh();
-      setError(null);
+      await deleteCompetitor(id);
+      // Optimistic update: no refetch, the row just disappears.
+      setCompetitors((prev) => prev.filter((c) => c.id !== id));
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         router.replace("/login");
         return;
       }
       setError(e instanceof Error ? e.message : String(e));
+      // The competitor stays in the list — the delete did not happen.
+    } finally {
+      setDeleting((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   }
+
+  const confirmName =
+    competitors.find((c) => c.id === confirmId)?.name ?? "";
 
   const limitLabel =
     plan === null
@@ -179,10 +190,11 @@ function HomeContent() {
                 </Link>
                 <button
                   type="button"
-                  onClick={() => void handleDelete(competitor)}
-                  className="inline-flex items-center justify-center rounded-sm px-3 py-2 text-sm text-fg-muted transition-colors duration-150 hover:text-accent"
+                  onClick={() => setConfirmId(competitor.id)}
+                  disabled={deleting.has(competitor.id)}
+                  className="inline-flex items-center justify-center rounded-sm px-3 py-2 text-sm text-fg-muted transition-colors duration-150 hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Удалить
+                  {deleting.has(competitor.id) ? "Удаляем…" : "Удалить"}
                 </button>
               </div>
             </li>
@@ -210,6 +222,16 @@ function HomeContent() {
       )}
 
       <Footer />
+
+      <ConfirmDialog
+        open={confirmId !== null}
+        title="Удалить конкурента?"
+        message={`«${confirmName}» — все снапшоты и инсайты будут удалены безвозвратно.`}
+        confirmLabel="Удалить"
+        variant="danger"
+        onConfirm={() => confirmId && void handleDeleteConfirmed(confirmId)}
+        onCancel={() => setConfirmId(null)}
+      />
     </main>
   );
 }
