@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/AuthGate";
+import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/Button";
 import {
@@ -136,6 +137,8 @@ function BillingContent() {
       <p className="mt-10 text-xs text-fg-faint">
         Оплата скоро. Сейчас тариф переключается бесплатно для теста.
       </p>
+
+      <Footer />
     </main>
   );
 }

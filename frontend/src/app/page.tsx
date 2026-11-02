@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { AuthGate } from "@/components/AuthGate";
+import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
@@ -178,6 +179,8 @@ function HomeContent() {
           </Link>
         </p>
       )}
+
+      <Footer />
     </main>
   );
 }

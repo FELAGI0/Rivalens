@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
 import { AuthGate } from "@/components/AuthGate";
+import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/Button";
 import {
@@ -222,6 +223,8 @@ function CompetitorPageContent() {
           </section>
         </>
       )}
+
+      <Footer />
     </main>
   );
 }

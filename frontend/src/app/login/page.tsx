@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/Button";
+import { Footer } from "@/components/Footer";
 import { Input } from "@/components/Input";
 import { login } from "@/lib/api";
 import { setToken } from "@/lib/auth";
@@ -79,6 +80,10 @@ export default function LoginPage() {
           Зарегистрироваться
         </Link>
       </p>
+
+      <div className="mt-16">
+        <Footer />
+      </div>
     </main>
   );
 }
