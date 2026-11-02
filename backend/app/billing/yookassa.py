@@ -50,7 +50,13 @@ async def create_payment(user_id: str, plan: str, amount_rub: int) -> dict:
                 settings.yookassa_shop_id,
                 settings.yookassa_secret_key,
             ),
-            headers={"Idempotence-Key": str(uuid.uuid4())},
+            headers={
+                "Idempotence-Key": str(uuid.uuid4()),
+                # httpx sets this with json=, but explicitly: YooKassa
+                # answers 415 Unsupported Media Type otherwise.
+                "Content-Type": "application/json",
+            },
+            json=payload,
         )
 
     if response.status_code != 200:

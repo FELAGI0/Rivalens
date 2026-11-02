@@ -328,3 +328,90 @@ async def test_webhook_verification_error_is_500(
 
     db.refresh(user)
     assert plan_name(user.plan) == "free"
+
+
+# --- YooKassa request format (regression: 415 without JSON body) ---
+
+import json  # noqa: E402
+
+import respx  # noqa: E402
+from app.billing import yookassa as yookassa_mod  # noqa: E402
+from app.config import settings as live_settings  # noqa: E402
+
+
+@respx.mock
+async def test_create_payment_request_format(monkeypatch) -> None:
+    """POST /v3/payments: JSON body, Content-Type, Idempotence-Key.
+
+    Regression: a refactoring once dropped json=payload — the request
+    went out with no body and no Content-Type, and YooKassa answered
+    415 Unsupported Media Type.
+    """
+    monkeypatch.setattr(live_settings, "yookassa_shop_id", "shop-1")
+    monkeypatch.setattr(live_settings, "yookassa_secret_key", "secret-1")
+
+    route = respx.post("https://api.yookassa.ru/v3/payments").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "payment-1",
+                "status": "pending",
+                "confirmation": {
+                    "type": "redirect",
+                    "confirmation_url": "https://checkout.example/pay",
+                },
+            },
+        )
+    )
+
+    result = await yookassa_mod.create_payment("user-1", "pro", 900)
+
+    assert result["payment_id"] == "payment-1"
+    assert result["confirmation_url"] == "https://checkout.example/pay"
+
+    request = route.calls[0].request
+    # Body is real JSON with the payment fields.
+    body = json.loads(request.content)
+    assert body["amount"] == {"value": "900", "currency": "RUB"}
+    assert body["capture"] is True
+    assert body["metadata"] == {"user_id": "user-1", "plan": "pro"}
+    assert body["description"] == "Rivalens pro"
+    # Headers: JSON content type + idempotence key + Basic auth.
+    assert request.headers["content-type"] == "application/json"
+    assert request.headers["idempotence-key"]
+    assert "Basic " in request.headers["authorization"]
+
+
+@respx.mock
+async def test_verify_payment_request(monkeypatch) -> None:
+    """GET /v3/payments/{id}: Basic auth, response body returned."""
+    monkeypatch.setattr(live_settings, "yookassa_shop_id", "shop-1")
+    monkeypatch.setattr(live_settings, "yookassa_secret_key", "secret-1")
+
+    route = respx.get("https://api.yookassa.ru/v3/payments/payment-9").mock(
+        return_value=httpx.Response(
+            200,
+            json={"id": "payment-9", "status": "succeeded", "metadata": {}},
+        )
+    )
+
+    payment = await yookassa_mod.verify_payment("payment-9")
+    assert payment["status"] == "succeeded"
+
+    request = route.calls[0].request
+    assert "Basic " in request.headers["authorization"]
+
+
+@respx.mock
+async def test_verify_payment_404(monkeypatch) -> None:
+    monkeypatch.setattr(live_settings, "yookassa_shop_id", "shop-1")
+    monkeypatch.setattr(live_settings, "yookassa_secret_key", "secret-1")
+
+    respx.get("https://api.yookassa.ru/v3/payments/missing").mock(
+        return_value=httpx.Response(404, json={"description": "not found"})
+    )
+
+    from app.billing.yookassa import YooKassaError
+
+    with pytest.raises(YooKassaError):
+        await yookassa_mod.verify_payment("missing")
