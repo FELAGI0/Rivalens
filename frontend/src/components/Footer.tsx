@@ -13,6 +13,12 @@ export function Footer() {
             Тарифы
           </Link>
           <Link
+            href="/services"
+            className="underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline"
+          >
+            О сервисе
+          </Link>
+          <Link
             href="/requisites"
             className="underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline"
           >

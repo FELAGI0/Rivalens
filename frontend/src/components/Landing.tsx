@@ -190,6 +190,14 @@ export function Landing() {
             </div>
           ))}
         </div>
+        <p className="mt-8 text-sm text-fg-muted">
+          <Link
+            href="/services"
+            className="underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline"
+          >
+            Подробнее о том, что входит в услугу — на странице «О сервисе».
+          </Link>
+        </p>
       </section>
 
       {/* Пример инсайта */}
