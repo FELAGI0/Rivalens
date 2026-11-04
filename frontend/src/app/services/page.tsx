@@ -142,6 +142,16 @@ export default function ServicesPage() {
             Контакты
           </h2>
           <p className="leading-relaxed">
+            Telegram:{" "}
+            <a
+              href="https://t.me/olll07"
+              className="text-accent underline-offset-4 hover:underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              @olll07
+            </a>
+            <br />
             Email:{" "}
             <a
               href="mailto:rivalens@ya.ru"
@@ -150,6 +160,9 @@ export default function ServicesPage() {
               rivalens@ya.ru
             </a>
             <br />
+            По вопросам возврата и оплаты — на эти же контакты.
+          </p>
+          <p className="mt-4 text-sm leading-relaxed">
             Реквизиты:{" "}
             <Link
               href="/requisites"

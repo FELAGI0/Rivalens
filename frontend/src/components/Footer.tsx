@@ -26,6 +26,26 @@ export function Footer() {
           </Link>
         </nav>
       </div>
+      <div className="mt-4 flex flex-col gap-1 sm:flex-row sm:gap-6">
+        <span className="uppercase tracking-wide">Поддержка</span>
+        <a
+          href="https://t.me/olll07"
+          className="underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Telegram
+        </a>
+        <a
+          href="mailto:rivalens@ya.ru"
+          className="underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline"
+        >
+          Email
+        </a>
+        <span className="text-xs text-fg-muted sm:ml-auto">
+          Возврат и вопросы по оплате — на эти же контакты
+        </span>
+      </div>
     </footer>
   );
 }

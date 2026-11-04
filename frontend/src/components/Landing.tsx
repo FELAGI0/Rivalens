@@ -290,6 +290,34 @@ export function Landing() {
         </div>
       </section>
 
+      {/* Есть вопросы? */}
+      <section className="mb-16 border-y border-line py-10">
+        <h2 className="mb-3 font-serif text-2xl font-semibold">
+          Есть вопросы?
+        </h2>
+        <p className="mb-4 text-fg-muted">
+          Напишите нам в Telegram или на почту — ответим в течение
+          рабочего дня.
+        </p>
+        <p className="text-sm">
+          <a
+            href="https://t.me/olll07"
+            className="text-fg-muted underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            @olll07
+          </a>
+          <span className="mx-3 text-fg-muted">·</span>
+          <a
+            href="mailto:rivalens@ya.ru"
+            className="text-fg-muted underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline"
+          >
+            rivalens@ya.ru
+          </a>
+        </p>
+      </section>
+
       <Footer />
     </main>
   );

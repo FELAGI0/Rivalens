@@ -78,6 +78,8 @@
 - Theme: class on <html>, localStorage 'theme', default system
   (prefers-color-scheme); init script in <head> prevents flash; fonts
   via next/font (Lora has cyrillic; Fraunces does NOT)
+- Support: Telegram @olll07 (https://t.me/olll07) + email
+  rivalens@ya.ru; refund / payment questions — same channels
 
 ## Lock file policy
 - frontend/package-lock.json генерируется ТОЛЬКО в Linux-контейнере
