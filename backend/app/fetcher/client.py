@@ -97,10 +97,16 @@ async def _curl_cffi_fetch(url: str) -> str:
     last_error: Exception | None = None
     current_url = url
     redirects_taken = 0
+    attempts_used = 0
     async with AsyncSession(
         impersonate="chrome", timeout=TIMEOUT_SECONDS
     ) as session:
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        # While, not for: a redirect hop is NOT a transport attempt —
+        # following it must not consume one of MAX_ATTEMPTS (a redirect
+        # chain of 2+ hops used to exhaust the attempts, leaving
+        # last_error=None and blowing up on the final assert).
+        # Redirects are capped separately by MAX_REDIRECTS.
+        while attempts_used < MAX_ATTEMPTS:
             try:
                 pinned_ips = await _guard_url(current_url)
                 parts = urlsplit(current_url)
@@ -142,16 +148,19 @@ async def _curl_cffi_fetch(url: str) -> str:
             except (ChallengeDetected, UnsafeURLError):
                 raise
             except Exception as e:
+                attempts_used += 1
                 last_error = e
                 logger.warning(
                     "curl_cffi attempt %d/%d failed for %s: %r",
-                    attempt,
+                    attempts_used,
                     MAX_ATTEMPTS,
                     current_url,
                     e,
                 )
-                if attempt < MAX_ATTEMPTS:
+                if attempts_used < MAX_ATTEMPTS:
                     await asyncio.sleep(RETRY_DELAY_SECONDS)
+    # Only reachable with attempts_used == MAX_ATTEMPTS, and every
+    # attempt that did not return/raise set last_error.
     assert last_error is not None
     raise last_error
 
