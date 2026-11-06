@@ -2,31 +2,32 @@
 
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.fetcher.guard import MAX_URL_LENGTH, check_url_scheme_and_host
+
 
 class CompetitorCreate(BaseModel):
-    name: str
-    url: str
+    # Length caps: unbounded fields are a trivial resource-exhaustion
+    # vector (huge names/URLs stored and logged on every check cycle).
+    name: str = Field(min_length=1, max_length=200)
+    url: str = Field(min_length=1, max_length=MAX_URL_LENGTH)
 
     @field_validator("url")
     @classmethod
-    def url_must_be_absolute_http(cls, value: str) -> str:
-        """Only absolute http(s) URLs reach the fetcher.
+    def url_is_safe(cls, value: str) -> str:
+        """Only safe absolute http(s) URLs reach the fetcher.
 
         Free-text input like "конкурент.ру" or "test" would otherwise be
         stored as-is and retried by the pipeline forever (and a bogus URL
-        used to be the one case that launched Playwright).
+        used to be the one case that launched Playwright). The same guard
+        rejects loopback/private/reserved hosts — the SSRF surface.
+
+        Raises UnsafeURLError (a ValueError subclass) -> FastAPI 422.
         """
-        parts = urlsplit(value)
-        if parts.scheme not in ("http", "https") or not parts.hostname:
-            raise ValueError(
-                "URL должен быть полным адресом с http/https, "
-                "например https://example.com/pricing"
-            )
+        check_url_scheme_and_host(value)
         return value
 
 

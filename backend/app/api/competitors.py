@@ -26,6 +26,7 @@ from app.billing.limits import (
     competitor_count,
     plan_name,
 )
+from app.config import settings
 from app.db.session import get_session
 from app.models import Change, Competitor, Insight, Page, PageKind, PageSnapshot, User
 from app.pipeline import run_competitor_check
@@ -210,6 +211,24 @@ async def check_competitor(
     user: User = Depends(get_current_user),
 ) -> dict:
     _own_competitor_or_404(db, competitor_id, user)
+
+    # Cooldown: a check costs fetch + LLM + email; unlimited manual
+    # clicking is a cost/DoS vector. Skipped when the competitor has
+    # never been checked (first click must always work).
+    cooldown = settings.manual_check_cooldown_seconds
+    if cooldown > 0:
+        last_checked = _last_checked_at(db, competitor_id)
+        if (
+            last_checked is not None
+            and (datetime.now(UTC) - last_checked).total_seconds() < cooldown
+        ):
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Слишком частые проверки. Подождите немного "
+                    "и попробуйте снова."
+                ),
+            )
 
     pages_checked = (
         db.scalar(

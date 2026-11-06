@@ -20,8 +20,11 @@ Design for a 2 GB RAM VPS:
 
 import asyncio
 import logging
+from urllib.parse import urlsplit
 
 import curl_cffi
+
+from app.fetcher.guard import UnsafeURLError, resolve_and_check_host
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,7 @@ TIMEOUT_SECONDS = 10.0
 PLAYWRIGHT_TIMEOUT_SECONDS = 30.0
 MAX_ATTEMPTS = 2  # initial attempt + 1 retry, curl_cffi path only
 RETRY_DELAY_SECONDS = 2.0
+MAX_REDIRECTS = 5  # each hop re-checked through the SSRF guard
 
 # Realistic browser UA: some sites (news.ycombinator.com among them)
 # reject or throttle requests from unknown bot-like agents.
@@ -59,21 +63,49 @@ def _is_js_challenge(html: str) -> bool:
 # curl_cffi, so tests monkeypatch these two hooks to fake the transports.
 
 
+def _guard_url(url: str) -> None:
+    """Resolve the host and reject private/reserved targets (SSRF).
+
+    Runs on every fetch, before the request goes out — the resolution is
+    fresh, which is what defeats DNS rebinding.
+    """
+    hostname = urlsplit(url).hostname
+    if not hostname:
+        raise UnsafeURLError(f"no hostname in {url!r}")
+    resolve_and_check_host(hostname)
+
+
 async def _curl_cffi_fetch(url: str) -> str:
     """Primary path: curl_cffi with a Chrome TLS fingerprint.
 
     Retries once on transport errors. Raises on HTTP error statuses
     (after retries) or when the response is a JS challenge stub.
+    Redirects are followed manually (MAX_REDIRECTS): automatic following
+    would let a public URL 302 into a private one, bypassing the guard.
+    Each hop is resolved and checked before it is requested.
     """
     from curl_cffi.requests import AsyncSession
 
     last_error: Exception | None = None
+    current_url = url
+    redirects_taken = 0
     async with AsyncSession(
         impersonate="chrome", timeout=TIMEOUT_SECONDS
     ) as session:
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                response = await session.get(url)
+                _guard_url(current_url)
+                response = await session.get(current_url, allow_redirects=False)
+                if response.status_code in (301, 302, 303, 307, 308) and (
+                    response.headers.get("location")
+                ):
+                    if redirects_taken >= MAX_REDIRECTS:
+                        raise UnsafeURLError("too many redirects")
+                    redirects_taken += 1
+                    current_url = _resolve_redirect(
+                        current_url, response.headers["location"]
+                    )
+                    continue
                 response.raise_for_status()
                 text = response.text
                 if _is_js_challenge(text):
@@ -81,7 +113,7 @@ async def _curl_cffi_fetch(url: str) -> str:
                     # not a transient failure. Caller decides on fallback.
                     raise ChallengeDetected(url)
                 return text
-            except ChallengeDetected:
+            except (ChallengeDetected, UnsafeURLError):
                 raise
             except Exception as e:
                 last_error = e
@@ -89,13 +121,25 @@ async def _curl_cffi_fetch(url: str) -> str:
                     "curl_cffi attempt %d/%d failed for %s: %r",
                     attempt,
                     MAX_ATTEMPTS,
-                    url,
+                    current_url,
                     e,
                 )
                 if attempt < MAX_ATTEMPTS:
                     await asyncio.sleep(RETRY_DELAY_SECONDS)
     assert last_error is not None
     raise last_error
+
+
+def _resolve_redirect(base_url: str, location: str) -> str:
+    """Join a redirect target against the current URL, keeping it http(s)."""
+    from urllib.parse import urljoin
+
+    target = urljoin(base_url, location)
+    parts = urlsplit(target)
+    if parts.scheme not in ("http", "https"):
+        # scheme smuggling via a redirect is refused outright
+        raise UnsafeURLError(f"redirect to non-http scheme {parts.scheme!r}")
+    return target
 
 
 class ChallengeDetected(Exception):
@@ -120,6 +164,24 @@ async def _playwright_fetch(url: str) -> str:
         browser = await p.chromium.launch(headless=True)
         try:
             page = await browser.new_page()
+
+            # SSRF guard for the browser too: any subrequest the page
+            # makes to a private/reserved host is aborted before it
+            # leaves the process (covers meta refresh, fetch() in page
+            # scripts, redirect chains Chromium would follow itself).
+            async def _abort_unsafe(route):
+                req = route.request
+                try:
+                    host = urlsplit(req.url).hostname
+                    if host:
+                        resolve_and_check_host(host)
+                    await route.continue_()
+                except UnsafeURLError as e:
+                    logger.warning("playwright blocked unsafe request: %r", e)
+                    await route.abort()
+
+            await page.route("**/*", _abort_unsafe)
+
             await page.goto(url, timeout=PLAYWRIGHT_TIMEOUT_SECONDS)
             # Give SPA-style sites a moment to finish rendering; networkidle
             # can hang on pages with long-polling, so domcontentloaded plus
@@ -141,8 +203,8 @@ async def fetch_html(url: str) -> str:
        them in Chromium would just launch a heavy browser to fail again,
        and on a 2 GB VPS that is an OOM risk, not a recovery.
 
-    Raises the curl_cffi error if the primary path fails, the Playwright
-    error if the fallback fails.
+    Raises UnsafeURLError if the URL (or any redirect hop) targets a
+    private/reserved network — that is not retried anywhere.
     """
     try:
         html = await _curl_cffi_fetch(url)
@@ -150,6 +212,7 @@ async def fetch_html(url: str) -> str:
     except ChallengeDetected:
         logger.info("JS challenge at %s, falling back to Playwright", url)
 
+    _guard_url(url)
     html = await _playwright_fetch(url)
     return html
 

@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Scheduled competitor checks
     check_interval_hours: int = 6
 
+    # Manual "Check now" cooldown: a check costs fetch + LLM + email, so
+    # unlimited clicking is a cost/DoS vector. 0 disables (tests).
+    manual_check_cooldown_seconds: int = 60
+
     # Email notifications (SMTP), disabled by default
     smtp_host: str = ""
     smtp_port: int = 587

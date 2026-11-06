@@ -25,6 +25,9 @@ os.environ.setdefault("AI_API_KEY", "sk-test")
 os.environ.setdefault("AI_MODEL", "test-model")
 os.environ.setdefault("AI_PROVIDER", "openai")
 os.environ.setdefault("JWT_SECRET", "test-secret")
+# Many tests POST /check several times in a row; the manual-check
+# cooldown (anti cost-DoS) would 429 them. Off in tests.
+os.environ.setdefault("MANUAL_CHECK_COOLDOWN_SECONDS", "0")
 
 
 @pytest.fixture(scope="session")
@@ -141,9 +144,20 @@ def fake_fetch(monkeypatch):
 
     # Patch the transports, not fetch_html itself: the real fetch_html
     # orchestration (challenge -> fallback) is exactly what these tests
-    # exercise.
+    # exercise. The SSRF guard resolves real DNS — unroutable test URLs
+    # (https://…example.com) would fail it — so the guard is stubbed to
+    # a check against the same route table: an unrouted URL still fails
+    # loudly, a routed one passes.
+    def fake_guard(url: str) -> None:
+        if url not in routes:
+            raise AssertionError(
+                f"fetch_html called with unrouted URL {url!r} — tests must "
+                "not hit the real network"
+            )
+
     monkeypatch.setattr(client_mod, "_curl_cffi_fetch", fake_curl_cffi)
     monkeypatch.setattr(client_mod, "_playwright_fetch", fake_playwright)
+    monkeypatch.setattr(client_mod, "_guard_url", fake_guard)
 
     return fake
 

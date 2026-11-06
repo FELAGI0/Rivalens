@@ -1,5 +1,6 @@
 """End-to-end competitor check pipeline: fetch -> extract -> diff -> summarize."""
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from uuid import UUID
@@ -14,6 +15,15 @@ from app.models import Change, Competitor, Insight, PageSnapshot, Page, User
 from app.notifications import send_insight_email
 
 logger = logging.getLogger(__name__)
+
+# Global concurrency cap: on a 1-CPU VPS a burst of manual checks (or
+# manual checks racing the scheduler) would otherwise run N pipelines in
+# parallel — N LLM calls, N SMTP sends, and worst of all several
+# Playwright Chromium launches at once (300-500 MB RSS each on a 2 GB
+# box). Extra runs wait their turn instead of piling on.
+MAX_CONCURRENT_CHECKS = 2
+
+_check_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHECKS)
 
 
 def _pg_advisory_lock_key(competitor_id: UUID | str) -> int:
@@ -32,8 +42,14 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
     Concurrency: the whole cycle runs under a per-competitor advisory
     lock, so a manual "Check now" cannot race the scheduled run and diff
     against the same previous snapshot twice (duplicate changes,
-    insights and emails).
+    insights and emails). Globally, at most MAX_CONCURRENT_CHECKS cycles
+    run at once (the semaphore is shared across the process).
     """
+    async with _check_semaphore:
+        return await _run_competitor_check_locked(competitor_id, db)
+
+
+async def _run_competitor_check_locked(competitor_id: UUID, db: Session) -> dict:
     # The lock is tied to the current transaction: it is taken on the
     # session's current transaction and released at commit/rollback, i.e.
     # exactly at the end of this cycle.

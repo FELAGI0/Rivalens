@@ -228,3 +228,66 @@ async def test_competitor_detail_has_counts(
     detail = (await client.get(f"/api/v1/competitors/{competitor_id}")).json()
     assert detail["total_checks"] == 2
     assert detail["last_checked_at"] is not None
+
+
+async def test_manual_check_cooldown(
+    client, db, auth, monkeypatch, fake_fetch
+) -> None:
+    """A second immediate manual check is a 429; the first click on a
+    never-checked competitor always works."""
+    from app.config import settings as live_settings
+
+    _mock_llm_success(monkeypatch)
+    monkeypatch.setattr(live_settings, "manual_check_cooldown_seconds", 60)
+
+    created = (await _create_competitor(client)).json()
+
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    first = await client.post(f"/api/v1/competitors/{created['id']}/check")
+    assert first.status_code == 200
+
+    second = await client.post(f"/api/v1/competitors/{created['id']}/check")
+    assert second.status_code == 429
+    assert "слишком" in second.json()["detail"].lower()
+
+
+async def test_manual_check_cooldown_first_click_ok(
+    client, db, auth, monkeypatch, fake_fetch
+) -> None:
+    """No snapshots yet: the cooldown must not block the first check."""
+    from app.config import settings as live_settings
+
+    _mock_llm_success(monkeypatch)
+    monkeypatch.setattr(live_settings, "manual_check_cooldown_seconds", 3600)
+
+    created = (await _create_competitor(client)).json()
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    first = await client.post(f"/api/v1/competitors/{created['id']}/check")
+    assert first.status_code == 200
+
+
+async def test_create_competitor_ssrf_rejected(client, db, auth) -> None:
+    """POST /competitors with a private-IP URL: 422, nothing stored."""
+    response = await client.post(
+        "/api/v1/competitors",
+        json={"name": "Internal", "url": "http://192.168.1.10/"},
+    )
+    assert response.status_code == 422
+
+
+async def test_create_competitor_oversize_rejected(client, db, auth) -> None:
+    """Huge name / URL: 422 (resource caps), nothing stored."""
+    response = await client.post(
+        "/api/v1/competitors",
+        json={"name": "X" * 500, "url": "https://example.com/"},
+    )
+    assert response.status_code == 422
+
+    response = await client.post(
+        "/api/v1/competitors",
+        json={
+            "name": "Big",
+            "url": "https://example.com/" + "a" * 3000,
+        },
+    )
+    assert response.status_code == 422
