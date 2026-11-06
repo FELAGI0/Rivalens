@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/Button";
 
+/** Modal confirm dialog.
+ *  Animations (CP25): overlay fades in (200ms), box scales from 0.96
+ *  (150ms). Closing plays the reverse for 150ms before unmount — via a
+ *  local isClosing state, so the caller's `open` flip stays simple. */
 export function ConfirmDialog({
   open,
   title,
@@ -30,6 +34,23 @@ export function ConfirmDialog({
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const [isClosing, setIsClosing] = useState(false);
+
+  // If the parent unmounts the dialog on its own (open -> false), the
+  // closing animation is skipped — the box just disappears, which is
+  // what the parent asked for.
+  useEffect(() => {
+    if (open) setIsClosing(false);
+  }, [open]);
+
+  function requestClose() {
+    if (isClosing) return;
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      onCancel();
+    }, 150);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -40,7 +61,7 @@ export function ConfirmDialog({
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onCancel();
+        requestClose();
         return;
       }
       if (event.key === "Tab") {
@@ -62,19 +83,26 @@ export function ConfirmDialog({
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onCancel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 
+  const closing = isClosing;
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onCancel}
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 ${
+        closing ? "animate-fade-out" : "animate-fade-in"
+      }`}
+      onClick={requestClose}
       role="presentation"
     >
       <div
         ref={dialogRef}
-        className="mx-4 w-full max-w-md rounded-sm border border-line bg-bg p-6"
+        className={`mx-4 w-full max-w-md rounded-sm border border-line bg-bg p-6 ${
+          closing ? "animate-scale-out" : "animate-scale-in"
+        }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -88,10 +116,14 @@ export function ConfirmDialog({
         </h2>
         <p className="mb-8 text-sm leading-relaxed text-fg-muted">{message}</p>
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onCancel} ref={cancelRef}>
+          <Button variant="ghost" onClick={requestClose} ref={cancelRef}>
             {cancelLabel}
           </Button>
-          <Button variant={confirmVariant} onClick={onConfirm} ref={confirmRef}>
+          <Button
+            variant={confirmVariant}
+            onClick={onConfirm}
+            ref={confirmRef}
+          >
             {confirmLabel}
           </Button>
         </div>

@@ -68,9 +68,20 @@ body * {
   transition-timing-function: ease;
 }
 
+/* Smooth theme flip on <html>: colors only, 200ms (CP25) */
+html {
+  transition-property: background-color, color;
+  transition-duration: 200ms;
+  transition-timing-function: ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   body,
   body * {
+    transition-duration: 0ms;
+  }
+
+  html {
     transition-duration: 0ms;
   }
 }
@@ -103,5 +114,109 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
   .spinner {
     animation-duration: 2s;
+  }
+}
+
+/* --- CP25: subtle entrance animations ------------------------------
+   Only opacity + small translate/scale(<=0.96->1). Durations: 150-300ms
+   micro, block appearance 300-400ms. No bounce, no pulse, no spin
+   (the loading spinner above is the sole exception). */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes draw-line {
+  from {
+    stroke-dashoffset: 1000;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+.animate-fade-out {
+  animation: fade-in 200ms ease-in reverse;
+}
+
+.animate-fade-up {
+  animation: fade-up 300ms ease-out both;
+}
+
+.animate-scale-in {
+  animation: scale-in 150ms ease-out;
+}
+
+.animate-scale-out {
+  animation: scale-in 150ms ease-in reverse;
+}
+
+/* Line-draw for the price chart: run once, then hold. */
+.chart-line-draw {
+  stroke-dasharray: 1000;
+  animation: draw-line 400ms ease-out forwards;
+}
+
+/* Skeleton blocks: opacity pulse only, no scale/translate. */
+.skeleton {
+  background-color: var(--bg-subtle);
+  border-radius: 2px;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-fade-out,
+  .animate-fade-up,
+  .animate-scale-in,
+  .animate-scale-out,
+  .chart-line-draw {
+    animation: none;
+  }
+
+  /* Skeleton keeps a static placeholder — visible, not moving. */
+  .skeleton {
+    animation-duration: 0s;
   }
 }

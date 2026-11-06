@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/Button";
 import { Footer } from "@/components/Footer";
+import { RevealOnView } from "@/components/RevealOnView";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 function IconPrice() {
@@ -148,17 +149,25 @@ export function Landing() {
 
       {/* Hero */}
       <section className="mb-24">
-        <h1 className="mb-6 max-w-2xl font-serif text-4xl font-semibold leading-tight md:text-5xl">
+        <h1
+          className="animate-fade-up mb-6 max-w-2xl font-serif text-4xl font-semibold leading-tight md:text-5xl"
+        >
           Конкурент снизил цену в понедельник. Клиент рассказал вам об
           этом в четверг.
         </h1>
-        <p className="mb-10 max-w-xl leading-relaxed text-fg-muted">
+        <p
+          className="animate-fade-up mb-10 max-w-xl leading-relaxed text-fg-muted"
+          style={{ animationDelay: "50ms" }}
+        >
           Rivalens проверяет сайты конкурентов каждые 6 часов и присылает
           готовый вывод: «конкурент снизил цену на 19%, появился
           корпоративный раздел, нанял трёх сейлзов» — чтобы вы реагировали
           в тот же день.
         </p>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div
+          className="animate-fade-up flex flex-col gap-3 sm:flex-row sm:items-center"
+          style={{ animationDelay: "100ms" }}
+        >
           <Link
             href="/register"
             className="inline-flex items-center justify-center rounded-sm bg-accent px-6 py-3 text-sm font-medium text-white transition-colors duration-150 hover:bg-accent-hover"
@@ -175,10 +184,11 @@ export function Landing() {
       </section>
 
       {/* Что мониторим */}
-      <section className="mb-24">
-        <h2 className="mb-10 text-sm font-medium uppercase tracking-wide text-fg-muted">
-          Что мониторим
-        </h2>
+      <RevealOnView className="mb-24">
+        <section>
+          <h2 className="mb-10 text-sm font-medium uppercase tracking-wide text-fg-muted">
+            Что мониторим
+          </h2>
         <div className="grid gap-10 md:grid-cols-3">
           {FEATURES.map((feature) => (
             <div key={feature.title}>
@@ -200,10 +210,12 @@ export function Landing() {
             Подробнее о том, что входит в услугу — на странице «О сервисе».
           </Link>
         </p>
-      </section>
+        </section>
+      </RevealOnView>
 
       {/* Пример инсайта */}
-      <section className="mb-24">
+      <RevealOnView className="mb-24">
+        <section>
         <h2 className="mb-10 text-sm font-medium uppercase tracking-wide text-fg-muted">
           Как это выглядит в письме
         </h2>
@@ -230,13 +242,15 @@ export function Landing() {
             Rivalens, 3 июня, конкурент: logistpro.ru
           </figcaption>
         </figure>
-      </section>
+        </section>
+      </RevealOnView>
 
       {/* Как работает */}
-      <section className="mb-24">
-        <h2 className="mb-10 text-sm font-medium uppercase tracking-wide text-fg-muted">
-          Как работает
-        </h2>
+      <RevealOnView className="mb-24">
+        <section>
+          <h2 className="mb-10 text-sm font-medium uppercase tracking-wide text-fg-muted">
+            Как работает
+          </h2>
         <ol className="divide-y divide-line border-y border-line">
           {STEPS.map((step, index) => (
             <li key={step} className="flex gap-6 py-5">
@@ -247,13 +261,15 @@ export function Landing() {
             </li>
           ))}
         </ol>
-      </section>
+        </section>
+      </RevealOnView>
 
       {/* Тарифы */}
-      <section className="mb-16">
-        <h2 className="mb-10 text-sm font-medium uppercase tracking-wide text-fg-muted">
-          Тарифы
-        </h2>
+      <RevealOnView className="mb-16">
+        <section>
+          <h2 className="mb-10 text-sm font-medium uppercase tracking-wide text-fg-muted">
+            Тарифы
+          </h2>
         <div className="grid gap-10 md:grid-cols-3">
           {PLANS.map((p) => (
             <div key={p.name} className="flex flex-col">
@@ -290,10 +306,12 @@ export function Landing() {
             </div>
           ))}
         </div>
-      </section>
+        </section>
+      </RevealOnView>
 
       {/* Есть вопросы? */}
-      <section className="mb-16 border-y border-line py-10">
+      <RevealOnView className="mb-16">
+        <section className="border-y border-line py-10">
         <h2 className="mb-3 font-serif text-2xl font-semibold">
           Есть вопросы?
         </h2>
@@ -318,7 +336,8 @@ export function Landing() {
             rivalens@ya.ru
           </a>
         </p>
-      </section>
+        </section>
+      </RevealOnView>
 
       <Footer />
     </main>

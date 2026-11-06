@@ -11,6 +11,7 @@ import { Header } from "@/components/Header";
 import { Landing } from "@/components/Landing";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
+import { Skeleton } from "@/components/Skeleton";
 import { getToken } from "@/lib/auth";
 import {
   ApiError,
@@ -36,6 +37,9 @@ function HomeContent() {
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Set<string>>(new Set());
+  // Skeletons show until the first refresh lands; re-fetches (after
+  // add/delete) must not flash the skeleton again.
+  const [listLoaded, setListLoaded] = useState(false);
 
   async function refresh() {
     try {
@@ -46,6 +50,7 @@ function HomeContent() {
       setCompetitors(competitorList);
       setPlanState(planInfo);
       setError(null);
+      setListLoaded(true);
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         router.replace("/login");
@@ -199,7 +204,15 @@ function HomeContent() {
         </div>
       )}
 
-      {competitors.length > 0 && (
+      {!listLoaded && (
+        <div className="space-y-2 border-t border-line pt-4" aria-label="Загрузка">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      )}
+
+      {listLoaded && competitors.length > 0 && (
         <ul className="divide-y divide-line border-t border-line">
           {competitors.map((competitor) => (
             <li
@@ -233,7 +246,7 @@ function HomeContent() {
         </ul>
       )}
 
-      {competitors.length === 0 && !error && !limitHit && (
+      {listLoaded && competitors.length === 0 && !error && !limitHit && (
         <p className="border-t border-line pt-8 text-fg-muted">
           Пока нет конкурентов. Добавьте первого — увидите, как работает
           мониторинг.

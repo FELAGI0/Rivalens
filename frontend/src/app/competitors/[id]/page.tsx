@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/Button";
+import { Skeleton } from "@/components/Skeleton";
 import {
   checkCompetitor,
   deleteCompetitor,
@@ -204,7 +205,7 @@ function buildPriceChangeItems(changes: PriceChange[]): PriceChangeItem[] {
   return items;
 }
 
-function PriceChart({ history }: { history: PriceHistory }) {
+function PriceChart({ history, animate }: { history: PriceHistory; animate: boolean }) {
   const points = chartPoints(history);
   if (points.length === 0) {
     return (
@@ -214,6 +215,8 @@ function PriceChart({ history }: { history: PriceHistory }) {
       </p>
     );
   }
+
+  const shouldDraw = animate && points.length > 1;
 
   const width = 640;
   const height = 200;
@@ -288,7 +291,9 @@ function PriceChart({ history }: { history: PriceHistory }) {
           {formatDateLabel(points[i].date)}
         </text>
       ))}
-      {/* The line */}
+      {/* The line: on first load it draws itself left-to-right
+          (400ms, 200ms after the section appears); on refresh it is
+          just there. */}
       <polyline
         points={polyline}
         fill="none"
@@ -296,6 +301,8 @@ function PriceChart({ history }: { history: PriceHistory }) {
         strokeWidth={2}
         strokeLinejoin="round"
         strokeLinecap="round"
+        className={shouldDraw ? "chart-line-draw" : undefined}
+        style={shouldDraw ? { animationDelay: "200ms" } : undefined}
       />
       {/* The dots */}
       {points.map((p, i) => (
@@ -326,6 +333,9 @@ function CompetitorPageContent() {
   const [checkBanner, setCheckBanner] = useState<string | null>(null);
   const [checkBannerAccent, setCheckBannerAccent] = useState(false);
   const [checkBannerError, setCheckBannerError] = useState(false);
+  // Staggered entrance animations run on the first load only — a
+  // refresh after "Check now" must not re-animate the whole page.
+  const [animated, setAnimated] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!id) return;
@@ -339,6 +349,7 @@ function CompetitorPageContent() {
       setChanges(sortChanges(changeList));
       setPriceHistory(history);
       setError(null);
+      setAnimated(true);
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         router.replace("/login");
@@ -478,7 +489,14 @@ function CompetitorPageContent() {
         </p>
       )}
 
-      {!detail && !error && <p className="text-fg-muted">Загрузка…</p>}
+      {!detail && !error && (
+        <div className="space-y-3" aria-label="Загрузка">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
+        </div>
+      )}
 
       {detail && (
         <>
@@ -520,12 +538,19 @@ function CompetitorPageContent() {
               </p>
             ) : (
               <ul className="divide-y divide-line border-t border-line">
-                {changes.map((change) => {
+                {changes.map((change, i) => {
                   const { label, emphasis } = formatChange(change);
+                  // Staggered entrance, first load only: 40ms per row,
+                  // capped at 300ms so long lists don't keep the user
+                  // waiting.
+                  const delay = animated ? Math.min(i * 40, 300) : 0;
                   return (
                     <li
                       key={change.id}
-                      className="flex items-baseline justify-between gap-4 py-3"
+                      className={`flex items-baseline justify-between gap-4 py-3 ${
+                        delay > 0 ? "animate-fade-up" : ""
+                      }`}
+                      style={delay > 0 ? { animationDelay: `${delay}ms` } : undefined}
                     >
                       <span
                         className={
@@ -555,7 +580,7 @@ function CompetitorPageContent() {
               priceHistory.changes.length > 0) ? (
               <>
                 <div className="border-y border-line py-4">
-                  <PriceChart history={priceHistory} />
+                  <PriceChart history={priceHistory} animate={animated} />
                 </div>
                 {priceHistory.changes.length > 0 && (
                   <ul className="divide-y divide-line border-b border-line">
@@ -598,17 +623,23 @@ function CompetitorPageContent() {
               </p>
             ) : (
               <ul className="border-t border-line">
-                {detail.insights.map((insight) => (
-                  <li
-                    key={insight.id}
-                    className="border-b border-line py-6 md:flex md:gap-8"
-                  >
-                    <p className="mb-2 shrink-0 text-xs text-fg-muted md:mb-0 md:w-36 md:pt-1">
-                      {new Date(insight.created_at).toLocaleString("ru-RU")}
-                    </p>
-                    <p className="leading-relaxed">{insight.summary}</p>
-                  </li>
-                ))}
+                {detail.insights.map((insight, i) => {
+                  const delay = animated ? Math.min(i * 40, 300) : 0;
+                  return (
+                    <li
+                      key={insight.id}
+                      className={`border-b border-line py-6 md:flex md:gap-8 ${
+                        delay > 0 ? "animate-fade-up" : ""
+                      }`}
+                      style={delay > 0 ? { animationDelay: `${delay}ms` } : undefined}
+                    >
+                      <p className="mb-2 shrink-0 text-xs text-fg-muted md:mb-0 md:w-36 md:pt-1">
+                        {new Date(insight.created_at).toLocaleString("ru-RU")}
+                      </p>
+                      <p className="leading-relaxed">{insight.summary}</p>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
