@@ -29,7 +29,7 @@ from app.billing.limits import (
 from app.config import settings
 from app.db.session import get_session
 from app.models import Change, Competitor, Insight, Page, PageKind, PageSnapshot, User
-from app.pipeline import run_competitor_check
+from app.pipeline import CheckBusyError, run_competitor_check
 
 router = APIRouter(prefix="/competitors")
 
@@ -242,7 +242,16 @@ async def check_competitor(
         or 0
     )
 
-    result = await run_competitor_check(competitor_id, db)
+    try:
+        result = await run_competitor_check(competitor_id, db)
+    except CheckBusyError:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Сейчас идут другие проверки — попробуйте через "
+                "пару минут."
+            ),
+        )
 
     # First check = exactly one snapshot exists after this run: nothing
     # to diff against yet, the next run will produce changes.

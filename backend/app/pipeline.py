@@ -23,7 +23,16 @@ logger = logging.getLogger(__name__)
 # box). Extra runs wait their turn instead of piling on.
 MAX_CONCURRENT_CHECKS = 2
 
+# How long a manual check may wait for a semaphore slot before giving
+# up. The caller (an HTTP request holding a pooled DB session) must not
+# queue indefinitely behind two slow cycles (LLM 60s + SMTP 20s each).
+CHECK_QUEUE_TIMEOUT_SECONDS = 30.0
+
 _check_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHECKS)
+
+
+class CheckBusyError(Exception):
+    """All pipeline slots are busy; the caller should retry later."""
 
 
 def _pg_advisory_lock_key(competitor_id: UUID | str) -> int:
@@ -43,10 +52,18 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
     lock, so a manual "Check now" cannot race the scheduled run and diff
     against the same previous snapshot twice (duplicate changes,
     insights and emails). Globally, at most MAX_CONCURRENT_CHECKS cycles
-    run at once (the semaphore is shared across the process).
+    run at once (the semaphore is shared across the process); a caller
+    waiting longer than CHECK_QUEUE_TIMEOUT_SECONDS gets CheckBusyError.
+    The scheduler path catches it like any per-competitor error.
     """
-    async with _check_semaphore:
-        return await _run_competitor_check_locked(competitor_id, db)
+    try:
+        async with asyncio.timeout(CHECK_QUEUE_TIMEOUT_SECONDS):
+            async with _check_semaphore:
+                return await _run_competitor_check_locked(competitor_id, db)
+    except TimeoutError as e:
+        raise CheckBusyError(
+            f"check queue busy for competitor {competitor_id}"
+        ) from e
 
 
 async def _run_competitor_check_locked(competitor_id: UUID, db: Session) -> dict:

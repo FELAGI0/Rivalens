@@ -148,12 +148,13 @@ def fake_fetch(monkeypatch):
     # (https://…example.com) would fail it — so the guard is stubbed to
     # a check against the same route table: an unrouted URL still fails
     # loudly, a routed one passes.
-    def fake_guard(url: str) -> None:
+    async def fake_guard(url: str) -> list[str]:
         if url not in routes:
             raise AssertionError(
                 f"fetch_html called with unrouted URL {url!r} — tests must "
                 "not hit the real network"
             )
+        return ["192.0.2.1"]  # TEST-NET: a fake "validated public IP"
 
     monkeypatch.setattr(client_mod, "_curl_cffi_fetch", fake_curl_cffi)
     monkeypatch.setattr(client_mod, "_playwright_fetch", fake_playwright)

@@ -17,6 +17,7 @@ a public URL 302 into a private one. The fetcher disables automatic
 redirects and re-runs each hop through this same guard (see client.py).
 """
 
+import asyncio
 import ipaddress
 import socket
 from urllib.parse import urlsplit
@@ -54,6 +55,10 @@ ALLOWED_PORTS = (80, 443)
 
 MAX_URL_LENGTH = 2048
 
+# Hard timeout for DNS resolution: a slow/hanging resolver must fail the
+# fetch fast, not stall the pipeline (and must never block the loop).
+RESOLVE_TIMEOUT_SECONDS = 5.0
+
 
 class UnsafeURLError(ValueError):
     """The URL points at (or could point at) a blocked network target."""
@@ -61,6 +66,28 @@ class UnsafeURLError(ValueError):
     def __init__(self, reason: str):
         super().__init__(f"unsafe url: {reason}")
         self.reason = reason
+
+
+def _normalize_ip(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Unwrap IPv6 forms that carry an IPv4 address inside.
+
+    ::ffff:127.0.0.1 (IPv4-mapped) is how a browser/curl may happily
+    connect to loopback while the literal "127.0.0.1" never appears.
+    6to4 (2002::/16) and Teredo (2001::/32) embed an IPv4 too.
+    """
+    if isinstance(ip, ipaddress.IPv6Address):
+        mapped = ip.ipv4_mapped
+        if mapped is None and ip.sixtofour is not None:
+            mapped = ip.sixtofour
+        if mapped is None and ip.teredo is not None:
+            # Teredo servers are a routing detail; the client IPv4 is
+            # what the connection ultimately egresses from.
+            mapped = ipaddress.IPv4Address(ip.teredo[1])
+        if mapped is not None:
+            return mapped
+    return ip
 
 
 def _ip_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -96,21 +123,35 @@ def check_url_scheme_and_host(url: str) -> None:
             raise UnsafeURLError("localhost not allowed")
         return
 
-    if _ip_is_blocked(ip):
+    if _ip_is_blocked(_normalize_ip(ip)):
         raise UnsafeURLError(f"private or reserved address {ip} not allowed")
 
 
-def resolve_and_check_host(hostname: str) -> None:
-    """Resolve the hostname now and verify every address is public.
+async def resolve_and_check_host(
+    hostname: str, timeout: float = RESOLVE_TIMEOUT_SECONDS
+) -> list[str]:
+    """Resolve the hostname (async, timeout-bounded) and check it.
 
-    Call on every fetch, right before the request: this is what defeats
-    DNS rebinding (a domain re-resolved to an internal address between
-    registration and check).
+    Returns the list of validated public IP strings — the caller pins
+    the request to these so libcurl/Chromium cannot re-resolve to a
+    different (rebound) address.
+
+    getaddrinfo is synchronous, so it runs in the event loop's executor
+    via loop.getaddrinfo with a hard timeout: a slow DNS answer must
+    not block the whole event loop, and a timeout is a fetch failure.
     """
+    loop = asyncio.get_running_loop()
     try:
-        infos = socket.getaddrinfo(
-            hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
+        infos = await asyncio.wait_for(
+            loop.getaddrinfo(
+                hostname, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM
+            ),
+            timeout=timeout,
         )
+    except asyncio.TimeoutError as e:
+        raise UnsafeURLError(
+            f"DNS resolution of {hostname!r} timed out"
+        ) from e
     except socket.gaierror as e:
         raise UnsafeURLError(f"cannot resolve {hostname!r}: {e}") from e
 
@@ -118,12 +159,15 @@ def resolve_and_check_host(hostname: str) -> None:
     if not addresses:
         raise UnsafeURLError(f"{hostname!r} resolved to no addresses")
 
+    validated: list[str] = []
     for addr in addresses:
         try:
-            ip = ipaddress.ip_address(addr.split("%")[0])  # strip zone id
+            ip = ipaddress.ip_address(addr.split("%")[0])  # zone id off
         except ValueError:
             raise UnsafeURLError(f"{hostname!r} resolved to {addr!r}")
-        if _ip_is_blocked(ip):
+        if _ip_is_blocked(_normalize_ip(ip)):
             raise UnsafeURLError(
                 f"{hostname!r} resolves to blocked address {ip}"
             )
+        validated.append(str(ip))
+    return validated

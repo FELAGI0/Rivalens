@@ -63,16 +63,23 @@ def _is_js_challenge(html: str) -> bool:
 # curl_cffi, so tests monkeypatch these two hooks to fake the transports.
 
 
-def _guard_url(url: str) -> None:
+def _pinned_ips_to_resolve_list(hostname: str, port: int, ips: list[str]) -> list[str]:
+    """curl_cffi `dns=` (CURLOPT_RESOLVE) pin format: host:port:ip entries."""
+    return [f"{hostname}:{port}:{ip}" for ip in ips]
+
+
+async def _guard_url(url: str) -> list[str]:
     """Resolve the host and reject private/reserved targets (SSRF).
 
-    Runs on every fetch, before the request goes out — the resolution is
-    fresh, which is what defeats DNS rebinding.
+    Returns validated IP strings for the caller to pin the request to.
+    Runs on every fetch, right before the request goes out — and the
+    connection is forced to use the validated address (curl: dns= pin),
+    closing the TOCTOU gap where libcurl would re-resolve on its own.
     """
     hostname = urlsplit(url).hostname
     if not hostname:
         raise UnsafeURLError(f"no hostname in {url!r}")
-    resolve_and_check_host(hostname)
+    return await resolve_and_check_host(hostname)
 
 
 async def _curl_cffi_fetch(url: str) -> str:
@@ -94,8 +101,20 @@ async def _curl_cffi_fetch(url: str) -> str:
     ) as session:
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                _guard_url(current_url)
-                response = await session.get(current_url, allow_redirects=False)
+                pinned_ips = await _guard_url(current_url)
+                parts = urlsplit(current_url)
+                # CURLOPT_RESOLVE: force the connection to the validated
+                # address — libcurl must not re-resolve (DNS rebinding
+                # between our check and its connect would be the TOCTOU).
+                dns_pins = _pinned_ips_to_resolve_list(
+                    parts.hostname,
+                    parts.port
+                    or (443 if parts.scheme == "https" else 80),
+                    pinned_ips,
+                )
+                response = await session.get(
+                    current_url, allow_redirects=False, dns=dns_pins
+                )
                 if response.status_code in (301, 302, 303, 307, 308) and (
                     response.headers.get("location")
                 ):
@@ -151,7 +170,15 @@ class ChallengeDetected(Exception):
 
 
 async def _playwright_fetch(url: str) -> str:
-    """Fallback path: render the page in headless Chromium."""
+    """Fallback path: render the page in headless Chromium.
+
+    The URL's host is guard-resolved before goto, and every subrequest
+    is intercepted and checked. Residual risk: page.goto itself is
+    resolved by Chromium, not pinned to our validated IP — a perfectly
+    timed rebinding could still slip the main document through. Full
+    mitigation is a network-level egress policy on the VPS; this code
+    layer makes the attack window milliseconds instead of hours.
+    """
     try:
         from playwright.async_api import async_playwright
     except ImportError as e:
@@ -169,14 +196,28 @@ async def _playwright_fetch(url: str) -> str:
             # makes to a private/reserved host is aborted before it
             # leaves the process (covers meta refresh, fetch() in page
             # scripts, redirect chains Chromium would follow itself).
+            # Resolution results are cached per-page: one page can fire
+            # dozens of same-host subrequests, and each guard call
+            # resolves DNS — a per-host cache avoids the lookup storm.
+            _resolved_cache: dict[str, UnsafeURLError | None] = {}
+
             async def _abort_unsafe(route):
                 req = route.request
+                host = urlsplit(req.url).hostname
                 try:
-                    host = urlsplit(req.url).hostname
                     if host:
-                        resolve_and_check_host(host)
+                        if host in _resolved_cache:
+                            cached = _resolved_cache[host]
+                            if cached is not None:
+                                raise cached
+                            await route.continue_()
+                            return
+                        await resolve_and_check_host(host)
+                        _resolved_cache[host] = None
                     await route.continue_()
                 except UnsafeURLError as e:
+                    if host not in _resolved_cache:
+                        _resolved_cache[host] = e
                     logger.warning("playwright blocked unsafe request: %r", e)
                     await route.abort()
 
@@ -212,7 +253,7 @@ async def fetch_html(url: str) -> str:
     except ChallengeDetected:
         logger.info("JS challenge at %s, falling back to Playwright", url)
 
-    _guard_url(url)
+    await _guard_url(url)
     html = await _playwright_fetch(url)
     return html
 
