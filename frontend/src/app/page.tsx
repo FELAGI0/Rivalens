@@ -11,6 +11,7 @@ import { Header } from "@/components/Header";
 import { Landing } from "@/components/Landing";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
+import { OnboardingTour } from "@/components/OnboardingTour";
 import { Skeleton } from "@/components/Skeleton";
 import { getToken } from "@/lib/auth";
 import {
@@ -40,6 +41,19 @@ function HomeContent() {
   // Skeletons show until the first refresh lands; re-fetches (after
   // add/delete) must not flash the skeleton again.
   const [listLoaded, setListLoaded] = useState(false);
+  // Onboarding for new users: shown once, until completed/skipped.
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  const ONBOARDING_KEY = "onboarding_completed";
+
+  function completeOnboarding() {
+    try {
+      localStorage.setItem(ONBOARDING_KEY, "true");
+    } catch {
+      // storage disabled — the tour just shows again next visit
+    }
+    setShowOnboarding(false);
+  }
 
   async function refresh() {
     try {
@@ -62,6 +76,26 @@ function HomeContent() {
 
   useEffect(() => {
     void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // New user (no completion flag): open the tour on the dashboard.
+    try {
+      if (localStorage.getItem(ONBOARDING_KEY) !== "true") {
+        setShowOnboarding(true);
+      }
+    } catch {
+      // storage unavailable — no tour
+    }
+    // "Как это работает?" in the Header clears the flag and signals
+    // here to reopen the tour in place (no remount on the same route).
+    function restartTour() {
+      setShowOnboarding(true);
+    }
+    window.addEventListener("rivalens:restart-tour", restartTour);
+    return () =>
+      window.removeEventListener("rivalens:restart-tour", restartTour);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -276,6 +310,12 @@ function HomeContent() {
         variant="danger"
         onConfirm={() => confirmId && void handleDeleteConfirmed(confirmId)}
         onCancel={() => setConfirmId(null)}
+      />
+
+      <OnboardingTour
+        open={showOnboarding}
+        onComplete={completeOnboarding}
+        onSkip={completeOnboarding}
       />
     </main>
   );

@@ -251,6 +251,34 @@ async def test_manual_check_cooldown(
     assert "слишком" in second.json()["detail"].lower()
 
 
+async def test_check_rate_limit_returns_retry_after(
+    client, db, auth, monkeypatch, fake_fetch
+) -> None:
+    """429 body carries retry_after (seconds) and a Retry-After header."""
+    from app.config import settings as live_settings
+
+    _mock_llm_success(monkeypatch)
+    monkeypatch.setattr(live_settings, "manual_check_cooldown_seconds", 120)
+
+    created = (await _create_competitor(client)).json()
+
+    fake_fetch.route(PAGE_URL, html=HTML_V1)
+    first = await client.post(f"/api/v1/competitors/{created['id']}/check")
+    assert first.status_code == 200
+
+    second = await client.post(f"/api/v1/competitors/{created['id']}/check")
+    assert second.status_code == 429
+
+    body = second.json()
+    # retry_after: 1..120, positive and within the cooldown window.
+    assert isinstance(body["retry_after"], int)
+    assert 1 <= body["retry_after"] <= 120
+    assert "Слишком частые" in body["detail"]
+
+    # The standard header mirrors the body value.
+    assert second.headers["retry-after"] == str(body["retry_after"])
+
+
 async def test_manual_check_cooldown_first_click_ok(
     client, db, auth, monkeypatch, fake_fetch
 ) -> None:

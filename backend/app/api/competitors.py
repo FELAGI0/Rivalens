@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -218,17 +219,21 @@ async def check_competitor(
     cooldown = settings.manual_check_cooldown_seconds
     if cooldown > 0:
         last_checked = _last_checked_at(db, competitor_id)
-        if (
-            last_checked is not None
-            and (datetime.now(UTC) - last_checked).total_seconds() < cooldown
-        ):
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    "Слишком частые проверки. Подождите немного "
-                    "и попробуйте снова."
-                ),
-            )
+        if last_checked is not None:
+            elapsed = (datetime.now(UTC) - last_checked).total_seconds()
+            if elapsed < cooldown:
+                retry_after = max(1, int(cooldown - elapsed))
+                # JSONResponse, not HTTPException: the body carries
+                # retry_after as a top-level field next to detail, so
+                # the frontend can render a countdown.
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "detail": "Слишком частые проверки.",
+                        "retry_after": retry_after,
+                    },
+                    headers={"Retry-After": str(retry_after)},
+                )
 
     pages_checked = (
         db.scalar(

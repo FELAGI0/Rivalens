@@ -114,11 +114,14 @@ export class PaymentRequiredError extends Error {}
 export class ApiError extends Error {
   readonly status: number;
   readonly detail: string;
+  /** Seconds until a retry is allowed (429 rate limit responses). */
+  readonly retryAfter: number | null;
 
-  constructor(status: number, detail: string) {
+  constructor(status: number, detail: string, retryAfter: number | null = null) {
     super(detail || `API error ${status}`);
     this.status = status;
     this.detail = detail;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -126,10 +129,12 @@ export class ApiError extends Error {
 async function toApiError(response: Response): Promise<ApiError> {
   const text = await response.text().catch(() => "");
   let detail = "";
+  let retryAfter: number | null = null;
   if (text) {
     try {
       const parsed = JSON.parse(text) as {
         detail?: string | { msg?: string }[];
+        retry_after?: number;
       };
       if (typeof parsed.detail === "string") {
         detail = parsed.detail;
@@ -137,12 +142,25 @@ async function toApiError(response: Response): Promise<ApiError> {
         // FastAPI 422 validation errors arrive as a list of {msg, ...}.
         detail = parsed.detail.map((d) => d.msg ?? "").join("; ");
       }
+      if (
+        typeof parsed.retry_after === "number" &&
+        parsed.retry_after > 0
+      ) {
+        retryAfter = parsed.retry_after;
+      }
     } catch {
       // not JSON — keep raw text
       detail = text;
     }
   }
-  return new ApiError(response.status, detail);
+  if (retryAfter === null) {
+    const header = response.headers.get("retry-after");
+    const parsedHeader = header === null ? NaN : Number(header);
+    if (Number.isFinite(parsedHeader) && parsedHeader > 0) {
+      retryAfter = parsedHeader;
+    }
+  }
+  return new ApiError(response.status, detail, retryAfter);
 }
 
 async function request<T>(

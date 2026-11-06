@@ -11,6 +11,7 @@ import { Header } from "@/components/Header";
 import { Button } from "@/components/Button";
 import { Skeleton } from "@/components/Skeleton";
 import {
+  ApiError,
   checkCompetitor,
   deleteCompetitor,
   getCompetitor,
@@ -333,6 +334,11 @@ function CompetitorPageContent() {
   const [checkBanner, setCheckBanner] = useState<string | null>(null);
   const [checkBannerAccent, setCheckBannerAccent] = useState(false);
   const [checkBannerError, setCheckBannerError] = useState(false);
+  // Rate-limit countdown (CP27): seconds until the check is allowed
+  // again; the button stays disabled while it ticks. Separate from
+  // checkBanner so the two lifecycles don't fight each other.
+  const [retrySeconds, setRetrySeconds] = useState(0);
+  const [countdownActive, setCountdownActive] = useState(false);
   // Staggered entrance animations run on the first load only — a
   // refresh after "Check now" must not re-animate the whole page.
   const [animated, setAnimated] = useState(false);
@@ -364,11 +370,31 @@ function CompetitorPageContent() {
   }, [refresh]);
 
   useEffect(() => {
-    // The banner self-destructs after 10 seconds.
-    if (checkBanner === null) return;
+    // The banner self-destructs after 10 seconds — except the rate
+    // countdown, which lives exactly as long as its countdown.
+    if (checkBanner === null || countdownActive) return;
     const timer = setTimeout(() => setCheckBanner(null), 10_000);
     return () => clearTimeout(timer);
-  }, [checkBanner]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkBanner, countdownActive]);
+
+  useEffect(() => {
+    // Rate-limit countdown: ticks down every second. When it reaches
+    // 0 the banner text clears itself (the flag says it's a countdown
+    // banner, not an ordinary 10s one).
+    if (retrySeconds <= 0) return;
+    const timer = setTimeout(() => setRetrySeconds((s) => s - 1), 1_000);
+    return () => clearTimeout(timer);
+  }, [retrySeconds]);
+
+  // Countdown banner text recomputed from retrySeconds while active.
+  useEffect(() => {
+    if (retrySeconds === 0 && countdownActive) {
+      setCountdownActive(false);
+      setCheckBanner(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retrySeconds, countdownActive]);
 
   async function handleDeleteConfirmed() {
     setConfirmDelete(false);
@@ -391,22 +417,29 @@ function CompetitorPageContent() {
     setBusy(true);
     setCheckBanner(null); // a new check replaces the old banner
     setCheckBannerError(false);
+    setCountdownActive(false);
     try {
       const result = await checkCompetitor(id);
       await refresh();
       setError(null);
-      if (result.pages_failed >= result.pages_checked && result.pages_checked > 0) {
-        // Every fetch failed: the site is likely down or unreachable.
+      // Red (error) banner ONLY when the fetch actually failed and
+      // nothing was saved: pages_failed > 0 and no new snapshots.
+      if (
+        result.pages_failed > 0 &&
+        result.pages_failed >= result.pages_checked &&
+        result.pages_checked > 0 &&
+        result.snapshots_created === 0
+      ) {
         setCheckBanner(
           `Не удалось загрузить ни одну страницу конкурента ` +
-            `(${result.pages_checked} из ${result.pages_checked}). ` +
+            `(${result.pages_checked}). ` +
             "Сайт недоступен или отдаёт ошибку — проверьте URL. " +
             "Повторим по расписанию.",
         );
         setCheckBannerError(true);
         setCheckBannerAccent(false);
       } else {
-        if (result.pages_failed > 0) {
+        if (result.pages_failed > 0 && result.pages_checked > 0) {
           setCheckBanner(
             `Часть страниц не загрузилась (${result.pages_failed} из ` +
               `${result.pages_checked}). ${bannerTextFor(result)}`,
@@ -420,6 +453,18 @@ function CompetitorPageContent() {
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         router.replace("/login");
+        return;
+      }
+      if (e instanceof ApiError && e.status === 429) {
+        // Rate limit: start the countdown, keep the button disabled.
+        const seconds = e.retryAfter ?? 60;
+        setRetrySeconds(seconds);
+        setCountdownActive(true);
+        setCheckBanner(
+          `Слишком частые проверки. Следующая попытка через ${seconds} сек.`,
+        );
+        setCheckBannerError(false);
+        setCheckBannerAccent(false);
         return;
       }
       setError(e instanceof Error ? e.message : String(e));
@@ -458,9 +503,16 @@ function CompetitorPageContent() {
           >
             {deleting ? "Удаляем…" : "Удалить конкурента"}
           </button>
-          <Button onClick={handleCheckNow} disabled={busy}>
+          <Button
+            onClick={handleCheckNow}
+            disabled={busy || countdownActive}
+          >
             {busy && <span className="spinner" aria-hidden="true" />}
-            {busy ? "Проверяем…" : "Проверить сейчас"}
+            {busy
+              ? "Проверяем…"
+              : countdownActive
+                ? `Подождите ${retrySeconds} сек.`
+                : "Проверить сейчас"}
           </Button>
         </div>
       </div>
@@ -485,7 +537,9 @@ function CompetitorPageContent() {
                 : "border-line bg-bg-subtle text-fg-muted"
           }`}
         >
-          {checkBanner}
+          {countdownActive
+            ? `Слишком частые проверки. Следующая попытка через ${retrySeconds} сек.`
+            : checkBanner}
         </p>
       )}
 
