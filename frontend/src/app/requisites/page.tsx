@@ -8,7 +8,7 @@ export const metadata = {
 export default function RequisitesPage() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="mb-8 text-4xl font-semibold">Реквизиты</h1>
+      <h1 className="mb-8 font-serif text-4xl font-semibold">Реквизиты</h1>
 
       <div className="border-y border-line py-8">
         <dl className="space-y-4">

@@ -40,7 +40,9 @@ const NOT_DOING = [
 export default function ServicesPage() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="mb-8 text-4xl font-semibold">О сервисе Rivalens</h1>
+      <h1 className="mb-8 font-serif text-4xl font-semibold">
+        О сервисе Rivalens
+      </h1>
 
       <div className="space-y-14 border-y border-line py-14">
         {/* Что делает */}

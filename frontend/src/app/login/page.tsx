@@ -7,8 +7,30 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { Footer } from "@/components/Footer";
 import { Input } from "@/components/Input";
-import { login } from "@/lib/api";
+import { ApiError, login } from "@/lib/api";
 import { setToken } from "@/lib/auth";
+
+/** Known errors -> human text; anything else stays generic. */
+function loginErrorMessage(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 401) {
+      return "Неверный email или пароль.";
+    }
+    if (e.status === 404) {
+      return "Аккаунт не найден. Зарегистрируйтесь.";
+    }
+    if (e.status === 422) {
+      return "Проверьте правильность заполнения полей.";
+    }
+    if (e.status === 500) {
+      return "Что-то пошло не так. Попробуйте позже.";
+    }
+  }
+  if (e instanceof Error && e.message.startsWith("Network error")) {
+    return "Сервер недоступен. Проверьте соединение и попробуйте позже.";
+  }
+  return "Не удалось войти. Попробуйте ещё раз.";
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,7 +48,7 @@ export default function LoginPage() {
       router.replace("/");
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(loginErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -65,7 +87,10 @@ export default function LoginPage() {
           />
         </div>
         {error && (
-          <p className="border-l-2 border-accent pl-4 text-sm text-fg-muted">
+          <p
+            role="alert"
+            className="rounded-sm border border-accent bg-bg-subtle p-3 text-sm text-accent"
+          >
             {error}
           </p>
         )}

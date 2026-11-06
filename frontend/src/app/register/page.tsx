@@ -7,8 +7,30 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { Footer } from "@/components/Footer";
 import { Input } from "@/components/Input";
-import { login, register } from "@/lib/api";
+import { ApiError, login, register } from "@/lib/api";
 import { setToken } from "@/lib/auth";
+
+/** Known errors -> human text; anything else stays generic. */
+function registerErrorMessage(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 409) {
+      return "Этот email уже зарегистрирован. Войдите или используйте другой.";
+    }
+    if (e.status === 422) {
+      return "Проверьте правильность заполнения полей.";
+    }
+    if (e.status === 400) {
+      return "Некорректный запрос. Попробуйте ещё раз.";
+    }
+    if (e.status === 500) {
+      return "Что-то пошло не так. Попробуйте позже.";
+    }
+  }
+  if (e instanceof Error && e.message.startsWith("Network error")) {
+    return "Сервер недоступен. Проверьте соединение и попробуйте позже.";
+  }
+  return "Не удалось зарегистрироваться. Попробуйте ещё раз.";
+}
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -22,13 +44,13 @@ export default function RegisterPage() {
     setBusy(true);
     try {
       await register(email.trim(), password);
-      // Log in right away to get the token.
+      // Log in right after registration to get the token.
       const token = await login(email.trim(), password);
       setToken(token);
       setError(null);
       router.replace("/");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(registerErrorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -68,7 +90,10 @@ export default function RegisterPage() {
           />
         </div>
         {error && (
-          <p className="border-l-2 border-accent pl-4 text-sm text-fg-muted">
+          <p
+            role="alert"
+            className="rounded-sm border border-accent bg-bg-subtle p-3 text-sm text-accent"
+          >
             {error}
           </p>
         )}

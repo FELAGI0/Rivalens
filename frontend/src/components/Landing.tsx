@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/Button";
 import { Footer } from "@/components/Footer";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 function IconPrice() {
   return (
@@ -141,6 +142,7 @@ export function Landing() {
           >
             Регистрация
           </Link>
+          <ThemeToggle />
         </nav>
       </header>
 
