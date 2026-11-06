@@ -91,6 +91,7 @@ async def _curl_cffi_fetch(url: str) -> str:
     would let a public URL 302 into a private one, bypassing the guard.
     Each hop is resolved and checked before it is requested.
     """
+    from curl_cffi import CurlOpt
     from curl_cffi.requests import AsyncSession
 
     last_error: Exception | None = None
@@ -106,14 +107,20 @@ async def _curl_cffi_fetch(url: str) -> str:
                 # CURLOPT_RESOLVE: force the connection to the validated
                 # address — libcurl must not re-resolve (DNS rebinding
                 # between our check and its connect would be the TOCTOU).
-                dns_pins = _pinned_ips_to_resolve_list(
+                # NOTE: this must go through session-level curl_options,
+                # NOT the `dns=` request parameter: in curl_cffi 0.17
+                # `dns=` is the DNS *server* address (requires c-ares),
+                # and passing host pins there breaks every request with
+                # libcurl Error 43 (bad function argument).
+                resolve_pins = _pinned_ips_to_resolve_list(
                     parts.hostname,
                     parts.port
                     or (443 if parts.scheme == "https" else 80),
                     pinned_ips,
                 )
+                session.curl_options = {CurlOpt.RESOLVE: resolve_pins}
                 response = await session.get(
-                    current_url, allow_redirects=False, dns=dns_pins
+                    current_url, allow_redirects=False
                 )
                 if response.status_code in (301, 302, 303, 307, 308) and (
                     response.headers.get("location")
