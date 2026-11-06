@@ -4,7 +4,7 @@ import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.diff import diff_entities
@@ -16,12 +16,29 @@ from app.notifications import send_insight_email
 logger = logging.getLogger(__name__)
 
 
+def _pg_advisory_lock_key(competitor_id: UUID | str) -> int:
+    """Stable 63-bit int for pg_advisory_xact_lock from the competitor UUID."""
+    value = competitor_id.int if isinstance(competitor_id, UUID) else UUID(competitor_id).int
+    return value >> 65
+
+
 async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
     """Run one check cycle for all active pages of a competitor.
 
-    Returns counts of created rows and the insight id (None if skipped).
-    Never raises on per-page fetch errors or LLM errors.
+    Returns counts of created rows, the insight id (None if skipped) and
+    the number of pages whose fetch failed. Never raises on per-page
+    fetch errors or LLM errors.
+
+    Concurrency: the whole cycle runs under a per-competitor advisory
+    lock, so a manual "Check now" cannot race the scheduled run and diff
+    against the same previous snapshot twice (duplicate changes,
+    insights and emails).
     """
+    # The lock is tied to the current transaction: it is taken on the
+    # session's current transaction and released at commit/rollback, i.e.
+    # exactly at the end of this cycle.
+    db.execute(func.pg_advisory_xact_lock(_pg_advisory_lock_key(competitor_id)))
+
     competitor = db.get(Competitor, competitor_id)
     if competitor is None:
         raise LookupError(f"competitor {competitor_id} not found")
@@ -32,6 +49,7 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
 
     snapshots_created = 0
     changes_created = 0
+    pages_failed = 0
     all_changes: list[dict] = []
     new_changes: list[Change] = []
     new_snapshot_times: list[datetime] = []
@@ -46,6 +64,7 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
             logger.warning(
                 "fetch failed for page %s (%s): %r", page.id, page.url, e
             )
+            pages_failed += 1
             continue
 
         logger.info(
@@ -105,6 +124,14 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
                 new_changes.append(change)
                 db.flush()
 
+    # Commit snapshots + changes BEFORE the slow parts (LLM up to 60s,
+    # SMTP up to 20s): no transaction/connection is pinned during them,
+    # and a failed LLM call can no longer lose the data. The advisory
+    # lock is released here — another check for this competitor (manual
+    # or scheduled) may start from this point, but it will see the new
+    # snapshots as "previous" and diff correctly.
+    db.commit()
+
     insight_id: UUID | None = None
     summary: str = ""
     if all_changes:
@@ -118,7 +145,7 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
                 change_ids=[str(c.id) for c in new_changes],
             )
             db.add(insight)
-            db.flush()
+            db.commit()
             insight_id = insight.id
             logger.info(
                 "llm: competitor %s -> insight %s (%d changes summarized)",
@@ -127,8 +154,9 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
                 len(all_changes),
             )
         except Exception as e:
-            # Snapshot + changes are already persisted at commit below;
-            # a failing LLM must never lose them.
+            # Snapshots + changes are already committed above; a failing
+            # LLM must never lose them.
+            db.rollback()
             logger.warning("LLM summarization failed: %r", e)
 
     # Email notification on a new insight. Separated from the LLM block:
@@ -160,11 +188,10 @@ async def run_competitor_check(competitor_id: UUID, db: Session) -> dict:
             "llm: competitor %s skipped, no changes", competitor.id
         )
 
-    db.commit()
-
     return {
         "snapshots_created": snapshots_created,
         "changes_created": changes_created,
+        "pages_failed": pages_failed,
         "insight_id": str(insight_id) if insight_id else None,
         "checked_at": datetime.now(UTC).isoformat(),
     }

@@ -56,7 +56,7 @@
 - run_all_competitors() обходит всех active конкурентов, для каждого
   run_competitor_check, ошибки по одному не роняют остальных
 - Ручной триггер: POST /api/v1/admin/run-all
-- Plans: free=1, pro=10, business=unlimited (app/billing/limits.py)
+- Plans: free=2, pro=10, business=unlimited (app/billing/limits.py)
 - MVP: manual plan switch via POST /billing/plan, no payment
 - 402 when limit exceeded (competitors POST checks can_add_competitor)
 - User.plan: normalize enum via plan_name() — str(UserPlan.FREE) is

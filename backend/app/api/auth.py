@@ -41,7 +41,12 @@ class UserOut(BaseModel):
 
     @classmethod
     def from_user(cls, user: User) -> "UserOut":
-        return cls(id=user.id, email=user.email, plan=str(user.plan))
+        # plan_name, not str(user.plan): str(UserPlan.FREE) is
+        # "UserPlan.FREE" for a freshly constructed User — the enum
+        # trap CLAUDE.md warns about.
+        from app.billing.limits import plan_name
+
+        return cls(id=user.id, email=user.email, plan=plan_name(user.plan))
 
 
 @router.post("/register", response_model=UserOut, status_code=201)

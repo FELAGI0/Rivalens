@@ -8,8 +8,11 @@ Design for a 2 GB RAM VPS:
 - Some sites respond with a JS challenge (Cloudflare "Just a moment...",
   "Enable JavaScript and cookies to continue") that no static client can
   pass. For those — and only those — we fall back to a headless Chromium
-  via Playwright. Chromium is heavy (~300-500 MB RSS), so it is launched
-  per URL, used, and closed immediately; never kept running.
+  via Playwright. Any other curl_cffi error (404/500, DNS failure, timeout)
+  is a permanent or transient failure of the site, not a sign that JS is
+  needed: launching Chromium for it would burn ~300-500 MB RSS on a
+  2 GB VPS on every check cycle. Chromium is launched per URL, used, and
+  closed immediately; never kept running.
 - Playwright is an optional dependency: if it (or its browser binaries)
   is not installed, the fallback raises, which the pipeline logs and
   treats like a fetch failure. The curl_cffi path works without it.
@@ -54,8 +57,6 @@ def _is_js_challenge(html: str) -> bool:
 # --- transport indirection for tests ---
 # respx (the httpx mocking library used in tests) cannot intercept
 # curl_cffi, so tests monkeypatch these two hooks to fake the transports.
-
-_fetch_with_curl_cffi = None  # set in _curl_cffi_fetch by default
 
 
 async def _curl_cffi_fetch(url: str) -> str:
@@ -135,19 +136,19 @@ async def fetch_html(url: str) -> str:
 
     1. curl_cffi (fast, Chrome fingerprint). A JS challenge stub is not
        accepted as content.
-    2. Playwright headless Chromium, only when the site is known to need
-       JS (challenge detected) or curl_cffi failed outright.
+    2. Playwright headless Chromium — only on ChallengeDetected. Other
+       curl_cffi errors (HTTP status, DNS, timeout) propagate: retrying
+       them in Chromium would just launch a heavy browser to fail again,
+       and on a 2 GB VPS that is an OOM risk, not a recovery.
 
-    Raises the last error if both paths fail.
+    Raises the curl_cffi error if the primary path fails, the Playwright
+    error if the fallback fails.
     """
     try:
         html = await _curl_cffi_fetch(url)
         return html
     except ChallengeDetected:
         logger.info("JS challenge at %s, falling back to Playwright", url)
-    except Exception as e:
-        logger.warning("curl_cffi failed for %s: %r", url, e)
-        logger.info("Falling back to Playwright for %s", url)
 
     html = await _playwright_fetch(url)
     return html

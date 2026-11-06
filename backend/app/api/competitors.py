@@ -20,7 +20,12 @@ from app.api.schemas import (
     PricePoint,
 )
 from app.auth.deps import get_current_user
-from app.billing.limits import can_add_competitor, competitor_count, plan_name
+from app.billing.limits import (
+    PLAN_LIMITS,
+    can_add_competitor,
+    competitor_count,
+    plan_name,
+)
 from app.db.session import get_session
 from app.models import Change, Competitor, Insight, Page, PageKind, PageSnapshot, User
 from app.pipeline import run_competitor_check
@@ -83,11 +88,19 @@ def create_competitor(
     user: User = Depends(get_current_user),
 ) -> Competitor:
     if not can_add_competitor(db, user):
+        current = plan_name(user.plan)
+        limit = PLAN_LIMITS.get(current)
+        # The next plan up is the upgrade hint; business (unlimited) has none.
+        next_up = {"free": "Pro", "pro": "Business"}.get(current)
+        hint = (
+            f" Перейдите на {next_up}, чтобы добавить больше."
+            if next_up
+            else ""
+        )
         raise HTTPException(
             status_code=402,
             detail=(
-                "Лимит Free — 2 конкурента. Перейдите на Pro, "
-                "чтобы добавить больше."
+                f"Лимит плана {current.capitalize()} — {limit} конкурентов.{hint}"
             ),
         )
 

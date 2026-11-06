@@ -16,39 +16,56 @@ import {
   type Plan,
 } from "@/lib/api";
 
-const PLANS: {
+type PlanCard = {
   name: string;
   limit: number | null;
   price: string;
   originalPrice: string | null;
   discountBadge: string | null;
   features: string;
-}[] = [
-  {
-    name: "free",
-    limit: 2,
-    price: "$0",
-    originalPrice: null,
-    discountBadge: null,
-    features: "2 конкурента",
-  },
-  {
-    name: "pro",
-    limit: 10,
-    price: "490 ₽/мес",
-    originalPrice: "900 ₽/мес",
-    discountBadge: "−45%",
-    features: "10 конкурентов",
-  },
-  {
-    name: "business",
-    limit: null,
-    price: "1990 ₽/мес",
-    originalPrice: "2900 ₽/мес",
-    discountBadge: "−31%",
-    features: "Без ограничений",
-  },
-];
+};
+
+// Free is static (no row in offers), paid plans come from the backend's
+// PLAN_PRICES_RUB via GET /billing/plan so a price change (or removing
+// the launch discount) shows here without a frontend deploy.
+function buildPlanCards(plan: Plan | null): PlanCard[] {
+  const offers = new Map(
+    (plan?.offers ?? []).map((offer) => [offer.name, offer]),
+  );
+  const cards: PlanCard[] = [
+    {
+      name: "free",
+      limit: 2,
+      price: "0 ₽",
+      originalPrice: null,
+      discountBadge: null,
+      features: "2 конкурента",
+    },
+  ];
+  for (const name of ["pro", "business"]) {
+    const offer = offers.get(name);
+    cards.push({
+      name,
+      limit: offer?.limit ?? null,
+      price: offer ? `${offer.discount_price.toLocaleString("ru-RU")} ₽/мес` : "—",
+      originalPrice:
+        offer && offer.original_price > offer.discount_price
+          ? `${offer.original_price.toLocaleString("ru-RU")} ₽/мес`
+          : null,
+      discountBadge:
+        offer && offer.original_price > offer.discount_price
+          ? `−${Math.round(
+              (1 - offer.discount_price / offer.original_price) * 100,
+            )}%`
+          : null,
+      features:
+        offer?.limit == null
+          ? "Без ограничений"
+          : `${offer.limit} конкурентов`,
+    });
+  }
+  return cards;
+}
 
 // Plan hierarchy: downgrade/same via setPlan, upgrade via checkout.
 const PLAN_RANK: Record<string, number> = {
@@ -172,7 +189,7 @@ function BillingContent() {
     <main className="mx-auto max-w-3xl px-6 py-16">
       <Header plan={plan ? `Тариф: ${plan.plan}` : null} />
 
-      <h1 className="mb-2 text-4xl font-semibold">Ваш тариф</h1>
+      <h1 className="mb-2 font-serif text-4xl font-semibold">Ваш тариф</h1>
       {plan && (
         <p className="mb-10 text-sm text-fg-muted">
           {plan.competitors_used} из{" "}
@@ -184,13 +201,16 @@ function BillingContent() {
       )}
 
       {error && (
-        <p className="mb-8 border-l-2 border-accent pl-4 text-sm text-fg-muted">
+        <p
+          role="alert"
+          className="mb-8 rounded-sm border border-accent bg-bg-subtle p-3 text-sm text-accent"
+        >
           {error}
         </p>
       )}
 
       <div className="grid gap-4 sm:grid-cols-3">
-        {PLANS.map((p) => {
+        {buildPlanCards(plan).map((p) => {
           const current = plan?.plan === p.name;
           return (
             <div

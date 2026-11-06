@@ -13,6 +13,7 @@ import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { getToken } from "@/lib/auth";
 import {
+  ApiError,
   createCompetitor,
   deleteCompetitor,
   getPlan,
@@ -62,6 +63,17 @@ function HomeContent() {
   async function handleAdd(event: React.FormEvent) {
     event.preventDefault();
     if (!name.trim() || !url.trim()) return;
+    // Client-side mirror of the backend's URL validation: instant
+    // feedback instead of a 422 round trip.
+    try {
+      const parsed = new URL(url.trim());
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("protocol");
+      }
+    } catch {
+      setError("Проверьте URL: нужен http:// или https://.");
+      return;
+    }
     setBusy(true);
     setLimitHit(false);
     try {
@@ -77,6 +89,22 @@ function HomeContent() {
       }
       if (e instanceof PaymentRequiredError) {
         setLimitHit(true);
+        return;
+      }
+      if (e instanceof ApiError) {
+        if (e.status === 422) {
+          setError("Проверьте URL: нужен http:// или https://.");
+        } else if (e.status === 400) {
+          setError("Некорректные данные.");
+        } else if (e.status === 500) {
+          setError("Что-то пошло не так. Попробуйте позже.");
+        } else {
+          setError(e.detail);
+        }
+        return;
+      }
+      if (e instanceof Error && e.message.startsWith("Network error")) {
+        setError("Сервер недоступен. Проверьте соединение.");
         return;
       }
       setError(e instanceof Error ? e.message : String(e));
@@ -151,7 +179,10 @@ function HomeContent() {
       </form>
 
       {error && (
-        <p className="mb-8 border-l-2 border-accent pl-4 text-sm text-fg-muted">
+        <p
+          role="alert"
+          className="mb-8 rounded-sm border border-accent bg-bg-subtle p-3 text-sm text-accent"
+        >
           {error}
         </p>
       )}

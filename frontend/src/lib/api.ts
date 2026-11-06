@@ -1,6 +1,8 @@
 import { authHeaders, clearToken } from "./auth";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Backend default port 8001 — 8000 is taken by another project
+// (BioPhysLab) on this machine, see CLAUDE.md.
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
 
 export type Competitor = {
   id: string;
@@ -45,6 +47,7 @@ export type CheckResult = {
   insight_id: string | null;
   checked_at: string;
   pages_checked: number;
+  pages_failed: number;
   next_check_at: string | null;
   is_first_check: boolean;
 };
@@ -90,14 +93,57 @@ export type User = {
   plan: string;
 };
 
+export type PlanOffer = {
+  name: string;
+  original_price: number;
+  discount_price: number;
+  limit: number | null;
+};
+
 export type Plan = {
   plan: string;
   competitors_used: number;
   competitors_limit: number | null;
+  offers: PlanOffer[];
 };
 
 export class UnauthorizedError extends Error {}
 export class PaymentRequiredError extends Error {}
+
+/** HTTP error with status + parsed FastAPI detail, for human mapping in pages. */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly detail: string;
+
+  constructor(status: number, detail: string) {
+    super(detail || `API error ${status}`);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/** Turn a failed response into an ApiError with the backend's detail. */
+async function toApiError(response: Response): Promise<ApiError> {
+  const text = await response.text().catch(() => "");
+  let detail = "";
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as {
+        detail?: string | { msg?: string }[];
+      };
+      if (typeof parsed.detail === "string") {
+        detail = parsed.detail;
+      } else if (Array.isArray(parsed.detail)) {
+        // FastAPI 422 validation errors arrive as a list of {msg, ...}.
+        detail = parsed.detail.map((d) => d.msg ?? "").join("; ");
+      }
+    } catch {
+      // not JSON — keep raw text
+      detail = text;
+    }
+  }
+  return new ApiError(response.status, detail);
+}
 
 async function request<T>(
   path: string,
@@ -125,18 +171,7 @@ async function request<T>(
     throw new PaymentRequiredError("plan limit reached");
   }
   if (!response.ok) {
-    // Prefer the backend's detail field, fall back to raw body text.
-    const text = await response.text().catch(() => "");
-    let detail = text;
-    if (text) {
-      try {
-        const parsed = JSON.parse(text) as { detail?: string };
-        if (parsed.detail) detail = parsed.detail;
-      } catch {
-        // not JSON — keep raw text
-      }
-    }
-    throw new Error(`API error ${response.status}: ${detail}`);
+    throw await toApiError(response);
   }
   // 204 No Content (and empty 200s) have no body to parse.
   if (response.status === 204) {
@@ -149,14 +184,20 @@ export async function login(
   email: string,
   password: string,
 ): Promise<string> {
-  const response = await fetch(`${API}/api/v1/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API}/api/v1/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch (e) {
+    throw new Error(
+      `Network error: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Login failed (${response.status}): ${text}`);
+    throw await toApiError(response);
   }
   const body = (await response.json()) as { access_token: string };
   return body.access_token;
@@ -166,14 +207,20 @@ export async function register(
   email: string,
   password: string,
 ): Promise<User> {
-  const response = await fetch(`${API}/api/v1/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API}/api/v1/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch (e) {
+    throw new Error(
+      `Network error: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Registration failed (${response.status}): ${text}`);
+    throw await toApiError(response);
   }
   return response.json() as Promise<User>;
 }

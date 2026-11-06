@@ -55,15 +55,28 @@ function sortChanges(changes: Change[]): Change[] {
   return [...changes].sort((a, b) => rank(a) - rank(b));
 }
 
+function formatHours(from: string, to: string): string {
+  const hours = Math.round(
+    (new Date(to).getTime() - new Date(from).getTime()) / 3_600_000,
+  );
+  if (hours >= 1) return `через ${hours} ч.`;
+  return "скоро (по расписанию)";
+}
+
 function bannerTextFor(result: {
   is_first_check: boolean;
   changes_created: number;
   pages_checked: number;
+  pages_failed: number;
   checked_at: string;
+  next_check_at: string | null;
 }): string {
+  const next = result.next_check_at
+    ? formatHours(result.checked_at, result.next_check_at)
+    : "по расписанию";
   if (result.is_first_check) {
     return "Первый снапшот создан. Пока не с чем сравнивать — изменения " +
-      "появятся после следующей проверки (через 6 часов) или когда " +
+      `появятся после следующей проверки (${next}) или когда ` +
       "контент изменится.";
   }
   if (result.changes_created === 0) {
@@ -72,7 +85,7 @@ function bannerTextFor(result: {
     ).toLocaleTimeString("ru-RU", {
       hour: "2-digit",
       minute: "2-digit",
-    })}. Изменений нет. Следующая проверка — через 6 часов.`;
+    })}. Изменений нет. Следующая проверка — ${next}.`;
   }
   return `Проверено: ${result.pages_checked} стр., ` +
     `${result.changes_created} изменений, инсайт готов. Прокрутите вниз.`;
@@ -312,6 +325,7 @@ function CompetitorPageContent() {
   const [deleting, setDeleting] = useState(false);
   const [checkBanner, setCheckBanner] = useState<string | null>(null);
   const [checkBannerAccent, setCheckBannerAccent] = useState(false);
+  const [checkBannerError, setCheckBannerError] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!id) return;
@@ -365,12 +379,33 @@ function CompetitorPageContent() {
   async function handleCheckNow() {
     setBusy(true);
     setCheckBanner(null); // a new check replaces the old banner
+    setCheckBannerError(false);
     try {
       const result = await checkCompetitor(id);
       await refresh();
       setError(null);
-      setCheckBanner(bannerTextFor(result));
-      setCheckBannerAccent(result.changes_created > 0);
+      if (result.pages_failed >= result.pages_checked && result.pages_checked > 0) {
+        // Every fetch failed: the site is likely down or unreachable.
+        setCheckBanner(
+          `Не удалось загрузить ни одну страницу конкурента ` +
+            `(${result.pages_checked} из ${result.pages_checked}). ` +
+            "Сайт недоступен или отдаёт ошибку — проверьте URL. " +
+            "Повторим по расписанию.",
+        );
+        setCheckBannerError(true);
+        setCheckBannerAccent(false);
+      } else {
+        if (result.pages_failed > 0) {
+          setCheckBanner(
+            `Часть страниц не загрузилась (${result.pages_failed} из ` +
+              `${result.pages_checked}). ${bannerTextFor(result)}`,
+          );
+        } else {
+          setCheckBanner(bannerTextFor(result));
+        }
+        setCheckBannerError(false);
+        setCheckBannerAccent(result.changes_created > 0);
+      }
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         router.replace("/login");
@@ -420,17 +455,23 @@ function CompetitorPageContent() {
       </div>
 
       {error && (
-        <p className="mb-8 border-l-2 border-accent pl-4 text-sm text-fg-muted">
+        <p
+          role="alert"
+          className="mb-8 rounded-sm border border-accent bg-bg-subtle p-3 text-sm text-accent"
+        >
           {error}
         </p>
       )}
 
       {checkBanner && (
         <p
+          role={checkBannerError ? "alert" : "status"}
           className={`mb-8 rounded-sm border px-4 py-3 text-sm leading-relaxed ${
-            checkBannerAccent
+            checkBannerError
               ? "border-accent bg-bg-subtle text-accent"
-              : "border-line bg-bg-subtle text-fg-muted"
+              : checkBannerAccent
+                ? "border-accent bg-bg-subtle text-accent"
+                : "border-line bg-bg-subtle text-fg-muted"
           }`}
         >
           {checkBanner}
@@ -467,8 +508,10 @@ function CompetitorPageContent() {
             </h2>
             {changes.length === 0 ? (
               <p className="border-y border-line py-8 text-sm text-fg-muted">
-                Изменений за последнее время нет. Следующая проверка — по
-                расписанию (каждые 6 часов).
+                Изменений за последнее время нет. Следующая проверка —{" "}
+                {detail.next_check_at
+                  ? `${new Date(detail.next_check_at).toLocaleString("ru-RU")}.`
+                  : "по расписанию."}
                 {detail.total_checks > 0 &&
                   detail.last_checked_at &&
                   ` Проверено ${detail.total_checks} раз, последняя — ${new Date(
@@ -544,8 +587,14 @@ function CompetitorPageContent() {
             </h2>
             {detail.insights.length === 0 ? (
               <p className="border-y border-line py-8 text-sm text-fg-muted">
-                Пока изменений нет. Мы проверяем каждые 6 часов — если
-                конкурент что-то изменит, пришлём на почту и покажем здесь.
+                Пока изменений нет. Мы проверяем по расписанию
+                {detail.next_check_at
+                  ? ` (следующая — ${new Date(
+                      detail.next_check_at,
+                    ).toLocaleString("ru-RU")})`
+                  : ""}
+                — если конкурент что-то изменит, пришлём на почту и покажем
+                здесь.
               </p>
             ) : (
               <ul className="border-t border-line">
