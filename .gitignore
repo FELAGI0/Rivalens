@@ -34,3 +34,6 @@ Thumbs.db
 *.log
 tmp/
 /backups/
+
+# Design-review artifacts (screenshots, CDP drivers, inspector reports)
+.taste-skill/
