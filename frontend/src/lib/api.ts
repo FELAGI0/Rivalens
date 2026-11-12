@@ -160,7 +160,32 @@ async function toApiError(response: Response): Promise<ApiError> {
       retryAfter = parsedHeader;
     }
   }
-  return new ApiError(response.status, detail, retryAfter);
+  return new ApiError(
+    response.status,
+    humanizeDetail(response.status, detail),
+    retryAfter,
+  );
+}
+
+/** Backend detail strings are English/log-facing; users read this. */
+const DETAIL_MESSAGES: Record<string, string> = {
+  "payment unavailable":
+    "Оплата временно недоступна. Напишите на rivalens@ya.ru.",
+  "unknown plan": "Такого тарифа нет.",
+  "plan already active": "Этот тариф уже активен.",
+  "use checkout for upgrade":
+    "Для перехода на старший тариф нужна оплата.",
+  "invalid or missing token": "Сессия истекла. Войдите заново.",
+};
+
+function humanizeDetail(status: number, detail: string): string {
+  const mapped = DETAIL_MESSAGES[detail];
+  if (mapped) return mapped;
+  // A 502 is always an upstream failure; never show the raw text.
+  if (status === 502) {
+    return "Сервис временно недоступен. Попробуйте позже или напишите на rivalens@ya.ru.";
+  }
+  return detail;
 }
 
 async function request<T>(

@@ -10,7 +10,11 @@ import pytest
 
 from app.config import Settings
 from app.config import settings as live_settings
-from app.notifications.email import send_digest_email, send_insight_email
+from app.notifications.email import (
+    _pluralize_changes,
+    send_digest_email,
+    send_insight_email,
+)
 
 # Same object, old local name used throughout this module.
 settings = live_settings
@@ -337,7 +341,7 @@ async def test_digest_email_sent(monkeypatch) -> None:
 
     message = smtp.sent_messages[0]
     assert message["To"] == "user@example.com"
-    assert message["Subject"] == "Rivalens: дайджест за неделю (2 изменений)"
+    assert message["Subject"] == "Rivalens: дайджест за неделю (2 изменения)"
 
     html_part = message.get_body(preferencelist=("html",))
     assert html_part is not None
@@ -364,6 +368,165 @@ async def test_digest_skipped_when_disabled() -> None:
     """notifications_enabled=False (fixture default): no SMTP touched."""
     await send_digest_email("user@example.com", [{"x": 1}])
     assert FakeSMTP.instances == []
+
+
+# --- CP28: HTML escaping, plural forms, email shell ---
+
+
+def test_pluralize_changes() -> None:
+    """Russian plural of «изменение» incl. the 11-14 exception."""
+    cases = {
+        0: "изменений",
+        1: "изменение",
+        2: "изменения",
+        3: "изменения",
+        4: "изменения",
+        5: "изменений",
+        10: "изменений",
+        11: "изменений",
+        12: "изменений",
+        13: "изменений",
+        14: "изменений",
+        15: "изменений",
+        20: "изменений",
+        21: "изменение",
+        22: "изменения",
+        25: "изменений",
+        101: "изменение",
+        111: "изменений",
+        112: "изменений",
+    }
+    for n, expected in cases.items():
+        assert _pluralize_changes(n) == expected, f"{n} -> {_pluralize_changes(n)}"
+
+
+def _html_and_plain(message) -> tuple[str, str]:
+    html_part = message.get_body(preferencelist=("html",))
+    plain_part = message.get_body(preferencelist=("plain",))
+    assert html_part is not None
+    assert plain_part is not None
+    return html_part.get_content(), plain_part.get_content()
+
+
+async def test_email_escapes_html(monkeypatch) -> None:
+    """User-controlled name/summary never reach the HTML part as markup.
+
+    competitor.name is a free-text field: without escaping, a name like
+    "<b>X</b>" renders as markup inside our own branded email.
+    """
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+
+    await send_insight_email(
+        "user@example.com",
+        "<b>X</b>",
+        "<script>alert(1)</script>",
+        "comp-id",
+    )
+
+    message = FakeSMTP.sent()[0]
+    html, plain = _html_and_plain(message)
+
+    # Escaped in HTML.
+    assert "&lt;b&gt;X&lt;/b&gt;" in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "<b>X</b>" not in html
+    assert "<script>alert(1)</script>" not in html
+
+    # Verbatim in the plain-text alternative — no escaping there.
+    assert "<b>X</b>" in plain
+    assert "<script>alert(1)</script>" in plain
+
+
+async def test_digest_escapes_html(monkeypatch) -> None:
+    """Digest escapes every item, not just the first."""
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+
+    items = [
+        {
+            "competitor_name": "<img src=x onerror=alert(1)>",
+            "summary": "a < b & c > d",
+            "competitor_id": "comp-a",
+        },
+        {
+            "competitor_name": "LogistPro",
+            "summary": "<iframe src=evil></iframe>",
+            "competitor_id": "comp-b",
+        },
+    ]
+    await send_digest_email("user@example.com", items)
+
+    message = FakeSMTP.sent()[0]
+    html, plain = _html_and_plain(message)
+
+    assert "<img src=x onerror=alert(1)>" not in html
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html
+    assert "<iframe" not in html
+    assert "&lt;iframe src=evil&gt;&lt;/iframe&gt;" in html
+    assert "a &lt; b &amp; c &gt; d" in html
+
+    # Plain part keeps the raw text.
+    assert "<img src=x onerror=alert(1)>" in plain
+
+
+async def test_digest_subject_plural(monkeypatch) -> None:
+    """The subject counts changes with the right Russian form."""
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+
+    def make(n: int) -> list[dict]:
+        return [
+            {
+                "competitor_name": f"Competitor {i}",
+                "summary": "summary",
+                "competitor_id": f"comp-{i}",
+            }
+            for i in range(n)
+        ]
+
+    for n, word in [(1, "изменение"), (2, "изменения"), (5, "изменений")]:
+        FakeSMTP.instances = []
+        await send_digest_email("user@example.com", make(n))
+        assert FakeSMTP.sent()[0]["Subject"] == (
+            f"Rivalens: дайджест за неделю ({n} {word})"
+        )
+
+
+async def test_email_has_charset_and_footer(monkeypatch) -> None:
+    """The HTML shell declares utf-8 and carries an unsubscribe footer."""
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+
+    items = [
+        {
+            "competitor_name": "Competitor A",
+            "summary": "summary A",
+            "competitor_id": "comp-a",
+        }
+    ]
+    await send_digest_email("user@example.com", items)
+
+    html, _ = _html_and_plain(FakeSMTP.sent()[0])
+
+    assert '<meta charset="utf-8">' in html
+    assert '<html lang="ru">' in html
+    assert "Настроить частоту писем" in html
+    assert "Отписаться" in html
+    assert "потому что отслеживаете конкурентов" in html
+
+
+async def test_digest_plain_part_has_links(monkeypatch) -> None:
+    """Plain-text clients still get a clickable URL per item."""
+    monkeypatch.setattr(settings, "notifications_enabled", True)
+
+    items = [
+        {
+            "competitor_name": "Competitor A",
+            "summary": "summary A",
+            "competitor_id": "comp-a",
+        }
+    ]
+    await send_digest_email("user@example.com", items)
+
+    _, plain = _html_and_plain(FakeSMTP.sent()[0])
+    assert "https://rivalens.ru/competitors/comp-a" in plain
 
 
 async def test_pipeline_instant_mode_sends_email(

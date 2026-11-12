@@ -99,18 +99,29 @@ function parsePrice(value: string): number | null {
   return Number(digits);
 }
 
-type ChartPoint = { date: string; value: number };
+/** Currency symbol that follows the number, e.g. "4 900 ₽" -> "₽". */
+function priceCurrency(value: string): string {
+  const match = value.match(/[₽$€]/);
+  return match ? match[0] : "";
+}
+
+type ChartPoint = { date: string; value: number; currency: string };
 
 function chartPoints(history: PriceHistory): ChartPoint[] {
   // One point per day: the minimum price found that day (the "floor"
   // of the competitor's offer is what the visitor actually sees).
   const points: ChartPoint[] = [];
   for (const point of history.points) {
-    const values = point.prices
-      .map(parsePrice)
-      .filter((v): v is number => v !== null);
-    if (values.length === 0) continue;
-    points.push({ date: point.date, value: Math.min(...values) });
+    const parsed: { value: number; currency: string }[] = [];
+    for (const raw of point.prices) {
+      const value = parsePrice(raw);
+      if (value !== null) {
+        parsed.push({ value, currency: priceCurrency(raw) });
+      }
+    }
+    if (parsed.length === 0) continue;
+    const min = parsed.reduce((a, b) => (b.value < a.value ? b : a));
+    points.push({ date: point.date, value: min.value, currency: min.currency });
   }
   return points;
 }
@@ -208,6 +219,10 @@ function buildPriceChangeItems(changes: PriceChange[]): PriceChangeItem[] {
 
 function PriceChart({ history, animate }: { history: PriceHistory; animate: boolean }) {
   const points = chartPoints(history);
+  // Hovered / tapped point: drives the tooltip. Kept above the early
+  // return so the hook order never changes.
+  const [active, setActive] = useState<number | null>(null);
+
   if (points.length === 0) {
     return (
       <p className="border-y border-line py-8 text-sm text-fg-muted">
@@ -219,11 +234,12 @@ function PriceChart({ history, animate }: { history: PriceHistory; animate: bool
 
   const shouldDraw = animate && points.length > 1;
 
-  const width = 640;
-  const height = 200;
-  const padding = { top: 12, right: 12, bottom: 24, left: 48 };
-  const innerWidth = width - padding.left - padding.right;
-  const innerHeight = height - padding.top - padding.bottom;
+  // The plot is drawn in SVG; axis labels are HTML around it. SVG text
+  // scales with the viewBox, which made 11px labels render at 5.6px on a
+  // 375px screen. HTML labels keep their own size at every width.
+  const width = 560;
+  const height = 180;
+  const padding = { top: 8, right: 8 };
 
   const values = points.map((p) => p.value);
   const minValue = Math.min(...values);
@@ -231,21 +247,16 @@ function PriceChart({ history, animate }: { history: PriceHistory; animate: bool
   // Degenerate range: give the line some vertical breathing room.
   const span = maxValue - minValue || Math.max(maxValue * 0.1, 1);
 
-  const xStep =
-    points.length > 1 ? innerWidth / (points.length - 1) : 0;
-  const xFor = (i: number) =>
-    points.length > 1
-      ? padding.left + i * xStep
-      : padding.left + innerWidth / 2;
-  const yFor = (value: number) =>
-    padding.top +
-    innerHeight -
-    ((value - minValue) / span) * innerHeight;
+  const innerWidth = width - padding.right;
+  const innerHeight = height - padding.top;
 
-  const linePoints = points.map(
-    (p, i) => `${xFor(i)},${yFor(p.value)}`,
-  );
-  const polyline = linePoints.join(" ");
+  const xStep = points.length > 1 ? innerWidth / (points.length - 1) : 0;
+  const xFor = (i: number) =>
+    points.length > 1 ? i * xStep : innerWidth / 2;
+  const yFor = (value: number) =>
+    padding.top + innerHeight - ((value - minValue) / span) * innerHeight;
+
+  const polyline = points.map((p, i) => `${xFor(i)},${yFor(p.value)}`).join(" ");
 
   // 3–4 X labels spread across the points.
   const labelCount = Math.min(4, points.length);
@@ -256,66 +267,105 @@ function PriceChart({ history, animate }: { history: PriceHistory; animate: bool
     );
   }
 
-  // Y axis: min / mid / max.
-  const yTicks = [minValue, (minValue + maxValue) / 2, maxValue];
+  const yTicks = [maxValue, (minValue + maxValue) / 2, minValue];
+  const currency = points[0]?.currency ?? "";
+  const formatValue = (v: number) => Math.round(v).toLocaleString("ru-RU");
+
+  const activePoint = active === null ? null : points[active];
 
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="h-auto w-full"
-      role="img"
-      aria-label="График изменения цены"
-    >
-      {/* Y axis labels */}
-      {yTicks.map((tick) => (
-        <text
-          key={tick}
-          x={padding.left - 8}
-          y={yFor(tick) + 4}
-          textAnchor="end"
-          className="fill-current text-fg-muted"
-          style={{ fontSize: 11 }}
+    <figure className="m-0">
+      <div className="flex gap-2">
+        {/* Y axis: three HTML labels, aligned with the plot's top/mid/base. */}
+        <div
+          className="flex shrink-0 flex-col justify-between py-1 text-right text-xs tabular-nums text-fg-muted"
+          aria-hidden="true"
         >
-          {Math.round(tick).toLocaleString("ru-RU")}
-        </text>
-      ))}
-      {/* X axis labels */}
-      {labelIndices.map((i) => (
-        <text
-          key={i}
-          x={xFor(i)}
-          y={height - 6}
-          textAnchor="middle"
-          className="fill-current text-fg-muted"
-          style={{ fontSize: 11 }}
-        >
-          {formatDateLabel(points[i].date)}
-        </text>
-      ))}
-      {/* The line: on first load it draws itself left-to-right
-          (400ms, 200ms after the section appears); on refresh it is
-          just there. */}
-      <polyline
-        points={polyline}
-        fill="none"
-        stroke="#E85D3D"
-        strokeWidth={2}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        className={shouldDraw ? "chart-line-draw" : undefined}
-        style={shouldDraw ? { animationDelay: "200ms" } : undefined}
-      />
-      {/* The dots */}
-      {points.map((p, i) => (
-        <circle
-          key={p.date}
-          cx={xFor(i)}
-          cy={yFor(p.value)}
-          r={3}
-          fill="#E85D3D"
-        />
-      ))}
-    </svg>
+          {yTicks.map((tick, i) => (
+            <span key={i}>{formatValue(tick)}</span>
+          ))}
+        </div>
+
+        <div className="relative min-w-0 flex-1">
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            className="block h-auto w-full"
+            role="img"
+            aria-label={`График изменения цены: от ${formatValue(
+              minValue,
+            )} до ${formatValue(maxValue)} ${currency}`}
+          >
+            <polyline
+              points={polyline}
+              fill="none"
+              stroke="#E85D3D"
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              className={shouldDraw ? "chart-line-draw" : undefined}
+              style={shouldDraw ? { animationDelay: "200ms" } : undefined}
+            />
+            {points.map((p, i) => (
+              <circle
+                key={p.date}
+                cx={xFor(i)}
+                cy={yFor(p.value)}
+                r={active === i ? 5 : 3}
+                fill="#E85D3D"
+                style={{ transition: "r 120ms ease-out" }}
+              />
+            ))}
+            {/* Invisible hit areas: a 3px dot is far too small for a
+                finger, so each point gets a 24-unit target (≈14px). */}
+            {points.map((p, i) => (
+              <circle
+                key={`hit-${p.date}`}
+                cx={xFor(i)}
+                cy={yFor(p.value)}
+                r={14}
+                fill="transparent"
+                onMouseEnter={() => setActive(i)}
+                onMouseLeave={() => setActive(null)}
+                onClick={() => setActive(i)}
+                style={{ cursor: "pointer" }}
+              />
+            ))}
+          </svg>
+
+          {activePoint && active !== null && (
+            <div
+              role="tooltip"
+              className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-sm border border-line bg-bg px-2 py-1 text-xs shadow-none"
+              style={{
+                left: `${(xFor(active) / width) * 100}%`,
+                top: `${(yFor(activePoint.value) / height) * 100}%`,
+                marginTop: "-10px",
+              }}
+            >
+              <span className="whitespace-nowrap text-fg">
+                {formatDateLabel(activePoint.date)} —{" "}
+                <span className="tabular-nums">
+                  {formatValue(activePoint.value)} {activePoint.currency}
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* X axis: HTML row below the plot, same width as the plot. */}
+      <div className="mt-2 flex justify-between pl-11 text-xs tabular-nums text-fg-muted">
+        {labelIndices.map((i) => (
+          <span key={i}>{formatDateLabel(points[i].date)}</span>
+        ))}
+      </div>
+
+      <figcaption className="mt-3 pl-11 text-xs text-fg-muted">
+        Минимум за день. Ниже — {formatValue(minValue)} {currency}, выше —{" "}
+        {formatValue(maxValue)} {currency}. Наведите на точку, чтобы увидеть
+        дату.
+      </figcaption>
+    </figure>
   );
 }
 
