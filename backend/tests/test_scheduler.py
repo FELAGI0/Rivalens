@@ -53,6 +53,7 @@ def _make_competitor(db, name: str, url: str, active: bool = True) -> Competitor
         user = User(
             email=f"{name.lower()}@example.com",
             password_hash="not-a-real-hash",
+            is_admin=True,
         )
         db.add(user)
         db.flush()
@@ -182,6 +183,9 @@ async def test_run_all_requires_auth(api_client, db) -> None:
 @respx.mock
 async def test_run_all_with_auth(api_client, db, session_factory_override) -> None:
     user = _make_user(db, "admin-trigger@example.com", _TEST_PASSWORD)
+    user.is_admin = True
+    db.add(user)
+    db.commit()
     headers = {"Authorization": f"Bearer {create_access_token(str(user.id))}"}
 
     response = await api_client.post("/api/v1/admin/run-all", headers=headers)

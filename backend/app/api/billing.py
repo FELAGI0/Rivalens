@@ -1,9 +1,11 @@
 """Billing endpoints: plan info, YooKassa checkout and webhook."""
 
 import logging
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
@@ -15,7 +17,7 @@ from app.billing.limits import (
 )
 from app.billing.yookassa import YooKassaError, create_payment, verify_payment
 from app.db.session import get_session
-from app.models import User
+from app.models import Payment, User
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +162,7 @@ async def billing_webhook(
     plan = metadata.get("plan")
     payment_id = payment.get("id")
 
-    if not payment_id or not user_id or plan not in VALID_PLANS:
+    if not payment_id or not user_id or plan not in PLAN_PRICES_RUB:
         logger.warning(
             "webhook succeeded event without usable metadata: %r",
             metadata,
@@ -175,11 +177,12 @@ async def billing_webhook(
         logger.warning("webhook verification failed for %s: %r", payment_id, e)
         raise HTTPException(status_code=500, detail="verification failed")
 
-    if verified.get("status") != "succeeded":
+    verified_status = verified.get("status")
+    if verified_status != "succeeded":
         logger.warning(
             "webhook: payment %s not succeeded (status=%r), skip",
             payment_id,
-            verified.get("status"),
+            verified_status,
         )
         return {"status": "ok"}
 
@@ -193,15 +196,45 @@ async def billing_webhook(
         )
         return {"status": "ok"}
 
+    amount = verified.get("amount") or {}
+    expected_amount = PLAN_PRICES_RUB[plan]["discount"]
+    try:
+        actual_amount = Decimal(str(amount.get("value", "0")))
+    except (InvalidOperation, TypeError):
+        actual_amount = Decimal("-1")
+    if actual_amount != Decimal(expected_amount):
+        logger.warning(
+            "webhook: amount mismatch %s != %s", amount, expected_amount
+        )
+        return {"status": "ok"}
+    if amount.get("currency") != "RUB":
+        logger.warning("webhook: currency mismatch for payment %s", payment_id)
+        return {"status": "ok"}
+    if verified.get("paid") is not True or verified.get("capture") is not True:
+        logger.warning("webhook: payment %s not paid/captured", payment_id)
+        return {"status": "ok"}
+
     user = db.get(User, user_id)
     if user is None:
         logger.warning("webhook for unknown user %r", user_id)
         return {"status": "ok"}
 
-    if plan_name(user.plan) == plan:
-        # Idempotency: YooKassa redelivers notifications; the plan is
-        # already active, nothing to do.
-        logger.info("webhook idempotent replay for user %s", user_id)
+    # Reserve the unique payment id atomically before changing the plan.
+    # A duplicate webhook cannot re-apply an already processed payment.
+    statement = (
+        insert(Payment)
+        .values(
+            payment_id=payment_id,
+            user_id=user.id,
+            plan=plan,
+            amount=expected_amount,
+        )
+        .on_conflict_do_nothing(index_elements=[Payment.payment_id])
+        .returning(Payment.id)
+    )
+    inserted_id = db.scalar(statement)
+    if inserted_id is None:
+        logger.info("webhook idempotent replay for payment %s", payment_id)
         return {"status": "ok"}
 
     user.plan = plan

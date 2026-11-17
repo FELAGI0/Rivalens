@@ -5,7 +5,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.auth.deps import get_current_user
+from app.auth.deps import require_admin
 from app.models import User
 from app.scheduler import run_all_competitors
 
@@ -24,14 +24,13 @@ _last_run_all_at: float = 0.0
 
 @router.post("/run-all")
 async def trigger_run_all(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ) -> dict:
     """Run a check cycle for all active competitors right now.
 
-    Any authenticated user may trigger it (MVP); a role check can be
-    added later. Rate-limited: not more than once per cooldown, and a
-    run already in progress makes new calls wait (bounded) instead of
-    piling up.
+    Only administrators may trigger it. Rate-limited: not more than once per
+    cooldown, and a run already in progress makes new calls wait (bounded)
+    instead of piling up.
     """
     global _last_run_all_at
 

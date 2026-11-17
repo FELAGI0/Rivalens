@@ -1,5 +1,7 @@
 """FastAPI dependency: current user from Bearer token."""
 
+import uuid
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
@@ -31,9 +33,13 @@ def get_current_user(
     return user
 
 
-def _uuid_or_none(value: str):
-    import uuid
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin only")
+    return user
 
+
+def _uuid_or_none(value: str) -> uuid.UUID | None:
     try:
         return uuid.UUID(value)
     except ValueError:

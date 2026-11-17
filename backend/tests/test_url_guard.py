@@ -181,6 +181,9 @@ async def test_run_all_cooldown(db, monkeypatch) -> None:
     from tests.conftest import make_user
 
     user = make_user(db, "run-all@example.com")
+    user.is_admin = True
+    db.add(user)
+    db.commit()
     token = create_access_token(str(user.id))
     headers = {"Authorization": f"Bearer {token}"}
 

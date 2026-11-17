@@ -246,10 +246,15 @@ export async function login(
   return body.access_token;
 }
 
+export type RegisterResult = {
+  access_token: string;
+  token_type: string;
+};
+
 export async function register(
   email: string,
   password: string,
-): Promise<User> {
+): Promise<RegisterResult> {
   let response: Response;
   try {
     response = await fetch(`${API}/api/v1/auth/register`, {
@@ -265,7 +270,7 @@ export async function register(
   if (!response.ok) {
     throw await toApiError(response);
   }
-  return response.json() as Promise<User>;
+  return response.json() as Promise<RegisterResult>;
 }
 
 export async function getMe(): Promise<User> {

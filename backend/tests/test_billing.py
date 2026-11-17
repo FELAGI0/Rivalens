@@ -156,7 +156,13 @@ def _webhook_body(
 
 
 def _mock_verify(
-    monkeypatch, user_id: str, plan: str = "pro", status: str = "succeeded"
+    monkeypatch,
+    user_id: str,
+    plan: str = "pro",
+    status: str = "succeeded",
+    amount: dict | None = None,
+    paid: bool = True,
+    capture: bool = True,
 ) -> None:
     """Patch billing.verify_payment: return payment matching the webhook."""
     from app.billing.yookassa import YooKassaError
@@ -167,6 +173,9 @@ def _mock_verify(
         return {
             "id": payment_id,
             "status": status,
+            "paid": paid,
+            "capture": capture,
+            "amount": amount or {"value": "490.00", "currency": "RUB"},
             "metadata": {"user_id": str(user_id), "plan": plan},
         }
 
@@ -206,6 +215,46 @@ async def test_create_payment_mock(client, db, monkeypatch) -> None:
 async def test_checkout_requires_auth(client, db) -> None:
     response = await client.post("/api/v1/billing/checkout", json={"plan": "pro"})
     assert response.status_code == 401
+
+
+async def test_webhook_amount_mismatch(client, db, monkeypatch) -> None:
+    user = make_user(db, "wrong-amount@example.com")
+    _mock_verify(
+        monkeypatch, user.id, amount={"value": "900.00", "currency": "RUB"}
+    )
+    response = await client.post("/api/v1/billing/webhook", json=_webhook_body(user.id))
+    assert response.status_code == 200
+    db.refresh(user)
+    assert plan_name(user.plan) == "free"
+
+
+async def test_webhook_currency_mismatch(client, db, monkeypatch) -> None:
+    user = make_user(db, "wrong-currency@example.com")
+    _mock_verify(
+        monkeypatch, user.id, amount={"value": "490.00", "currency": "USD"}
+    )
+    response = await client.post("/api/v1/billing/webhook", json=_webhook_body(user.id))
+    assert response.status_code == 200
+    db.refresh(user)
+    assert plan_name(user.plan) == "free"
+
+
+async def test_webhook_not_paid(client, db, monkeypatch) -> None:
+    user = make_user(db, "unpaid@example.com")
+    _mock_verify(monkeypatch, user.id, paid=False)
+    response = await client.post("/api/v1/billing/webhook", json=_webhook_body(user.id))
+    assert response.status_code == 200
+    db.refresh(user)
+    assert plan_name(user.plan) == "free"
+
+
+async def test_webhook_not_captured(client, db, monkeypatch) -> None:
+    user = make_user(db, "uncaptured@example.com")
+    _mock_verify(monkeypatch, user.id, capture=False)
+    response = await client.post("/api/v1/billing/webhook", json=_webhook_body(user.id))
+    assert response.status_code == 200
+    db.refresh(user)
+    assert plan_name(user.plan) == "free"
 
 
 async def test_webhook_succeeded(client, db, monkeypatch) -> None:

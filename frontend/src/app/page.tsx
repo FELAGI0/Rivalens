@@ -204,12 +204,14 @@ function HomeContent() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Название конкурента"
+          aria-label="Название конкурента"
           className="sm:w-56"
         />
         <Input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://пример.ру"
+          aria-label="URL конкурента"
           className="flex-1"
         />
         <Button type="submit" disabled={busy} className="sm:w-auto">

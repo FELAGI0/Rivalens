@@ -68,6 +68,7 @@ export default function LoginPage() {
           </label>
           <Input
             id="email"
+            aria-label="Email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -80,6 +81,7 @@ export default function LoginPage() {
           </label>
           <Input
             id="password"
+            aria-label="Пароль"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { Footer } from "@/components/Footer";
 import { Input } from "@/components/Input";
-import { ApiError, login, register } from "@/lib/api";
+import { ApiError, register } from "@/lib/api";
 import { setToken } from "@/lib/auth";
 
 /** Known errors -> human text; anything else stays generic. */
@@ -43,10 +43,8 @@ export default function RegisterPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      await register(email.trim(), password);
-      // Log in right after registration to get the token.
-      const token = await login(email.trim(), password);
-      setToken(token);
+      const result = await register(email.trim(), password);
+      setToken(result.access_token);
       setError(null);
       router.replace("/");
     } catch (e) {
@@ -70,6 +68,7 @@ export default function RegisterPage() {
           </label>
           <Input
             id="email"
+            aria-label="Email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -82,6 +81,7 @@ export default function RegisterPage() {
           </label>
           <Input
             id="password"
+            aria-label="Пароль"
             type="password"
             minLength={8}
             value={password}

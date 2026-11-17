@@ -49,8 +49,8 @@ class UserOut(BaseModel):
         return cls(id=user.id, email=user.email, plan=plan_name(user.plan))
 
 
-@router.post("/register", response_model=UserOut, status_code=201)
-def register(payload: RegisterIn, db: Session = Depends(get_session)) -> User:
+@router.post("/register", response_model=TokenOut, status_code=201)
+def register(payload: RegisterIn, db: Session = Depends(get_session)) -> TokenOut:
     existing = db.scalars(
         select(User).where(User.email == payload.email)
     ).first()
@@ -76,7 +76,7 @@ def register(payload: RegisterIn, db: Session = Depends(get_session)) -> User:
 
     db.commit()
     db.refresh(user)
-    return user
+    return TokenOut(access_token=create_access_token(str(user.id)))
 
 
 @router.post("/login", response_model=TokenOut)

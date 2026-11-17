@@ -54,6 +54,11 @@ export function OnboardingTour({
   const [step, setStep] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const rectRef = useRef<HTMLDivElement | null>(null);
+  const skipRef = useRef<HTMLButtonElement | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const onSkipRef = useRef(onSkip);
+  onSkipRef.current = onSkip;
 
   const current = STEPS[step];
 
@@ -86,6 +91,45 @@ export function OnboardingTour({
 
   useEffect(() => {
     if (open) setStep(0);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    returnFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    skipRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onSkipRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = cardRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      returnFocusRef.current?.focus();
+      returnFocusRef.current = null;
+    };
   }, [open]);
 
   if (!open) return null;
@@ -135,6 +179,7 @@ export function OnboardingTour({
 
       {/* Step card. */}
       <div
+        ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-label={current.title}
@@ -152,6 +197,7 @@ export function OnboardingTour({
         </p>
         <div className="flex items-center justify-between">
           <button
+            ref={skipRef}
             type="button"
             onClick={onSkip}
             className="text-sm text-fg-muted underline-offset-4 transition-colors duration-150 hover:text-fg hover:underline"

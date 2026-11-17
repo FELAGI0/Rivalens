@@ -27,8 +27,17 @@ async def test_register_login_me(client, db) -> None:
     )
     assert response.status_code == 201
     registered = response.json()
-    assert registered["email"] == "auth@example.com"
-    assert registered["plan"] == "free"
+    assert registered["access_token"]
+    assert registered["token_type"] == "bearer"
+
+    response = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {registered['access_token']}"},
+    )
+    assert response.status_code == 200
+    me = response.json()
+    assert me["email"] == "auth@example.com"
+    registered_user_id = me["id"]
 
     response = await client.post(
         "/api/v1/auth/login",
@@ -44,7 +53,7 @@ async def test_register_login_me(client, db) -> None:
     assert response.status_code == 200
     me = response.json()
     assert me["email"] == "auth@example.com"
-    assert me["id"] == registered["id"]
+    assert me["id"] == registered_user_id
 
 
 async def test_login_wrong_password(client, db) -> None:
@@ -134,18 +143,30 @@ async def test_run_all_requires_auth(client, db) -> None:
     assert response.status_code == 401
 
 
+async def test_run_all_requires_admin(client, db) -> None:
+    from app.auth.security import create_access_token
+
+    user = make_user(db, "ordinary@example.com")
+    headers = {"Authorization": f"Bearer {create_access_token(str(user.id))}"}
+    response = await client.post("/api/v1/admin/run-all", headers=headers)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "admin only"
+
+
 async def test_register_seeds_demo(client, db) -> None:
     """Registration plants exactly one demo competitor with one insight."""
     from sqlalchemy import select
 
-    from app.models import Competitor, Insight
+    from app.models import Competitor, Insight, User
 
     response = await client.post(
         "/api/v1/auth/register",
         json={"email": "demo-seed@example.com", "password": TEST_PASSWORD},
     )
     assert response.status_code == 201
-    user_id = response.json()["id"]
+    user_id = db.scalars(
+        select(User).where(User.email == "demo-seed@example.com")
+    ).one().id
 
     competitors = db.scalars(
         select(Competitor).where(Competitor.user_id == user_id)
