@@ -30,6 +30,25 @@ function formatChange(change: Change): {
 } {
   const p = change.payload;
   switch (change.kind) {
+    case "product_price_changed":
+      return {
+        label:
+          `Цена изменилась: ${String(p.title)}: ` +
+          `${String(p.from) || "—"} → ${String(p.to) || "—"}`,
+        emphasis: true,
+      };
+    case "product_added":
+      return {
+        label:
+          `Добавлен товар: ${String(p.title)}` +
+          (p.price ? ` (${String(p.price)})` : ""),
+        emphasis: false,
+      };
+    case "product_removed":
+      return {
+        label: `Товар пропал: ${String(p.title)}`,
+        emphasis: false,
+      };
     case "price_added":
       return { label: `Цена: +${String(p.value)}`, emphasis: true };
     case "price_removed":
@@ -53,7 +72,12 @@ function formatChange(change: Change): {
 }
 
 function sortChanges(changes: Change[]): Change[] {
-  const rank = (c: Change) => (c.kind.startsWith("price_") ? 0 : 1);
+  const rank = (c: Change) => {
+    if (c.kind === "product_price_changed") return 0;
+    if (c.kind.startsWith("product_")) return 1;
+    if (c.kind.startsWith("price_")) return 2;
+    return 3;
+  };
   return [...changes].sort((a, b) => rank(a) - rank(b));
 }
 

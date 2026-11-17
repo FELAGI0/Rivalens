@@ -158,6 +158,53 @@ async def test_diff_detects_price_change(db, fake_fetch, monkeypatch) -> None:
     assert len(insight) == 1
 
 
+CATALOG_V1 = """
+<html><head><title>Каталог ОЗУ</title></head><body>
+  <article class="product"><a href="/p1"><h3>Kingston Fury 16GB</h3></a><span class="price">6350 ₽</span></article>
+  <article class="product"><a href="/p2"><h3>Samsung DDR5 32GB</h3></a><span class="price">127000 ₽</span></article>
+  <article class="product"><a href="/p3"><h3>Crucial 8GB</h3></a><span class="price">2990 ₽</span></article>
+</body></html>
+"""
+
+CATALOG_V2 = """
+<html><head><title>Каталог ОЗУ</title></head><body>
+  <article class="product"><a href="/p1"><h3>Kingston Fury 16GB</h3></a><span class="price">5990 ₽</span></article>
+  <article class="product"><a href="/p2"><h3>Samsung DDR5 32GB</h3></a><span class="price">127000 ₽</span></article>
+  <article class="product"><a href="/p4"><h3>Teamgroup 16GB</h3></a><span class="price">4590 ₽</span></article>
+</body></html>
+"""
+
+
+async def test_catalog_pipeline_emits_product_changes_only(
+    db, fake_fetch, monkeypatch
+) -> None:
+    """A catalog page diffs per product, never as a noisy price set."""
+    page = _make_competitor_with_page(db)
+    _mock_llm_success(monkeypatch)
+
+    fake_fetch.route(PAGE_URL, html=CATALOG_V1)
+    await run_competitor_check(page.competitor_id, db)
+
+    fake_fetch.route(PAGE_URL, html=CATALOG_V2)
+    result = await run_competitor_check(page.competitor_id, db)
+    assert result["insight_id"] is not None
+
+    rows = db.scalars(
+        select(Change).where(Change.page_id == page.id)
+    ).all()
+    kinds = {row.kind for row in rows}
+
+    assert "product_price_changed" in kinds
+    assert "product_removed" in kinds
+    assert "product_added" in kinds
+    assert not {"price_added", "price_removed"} & kinds
+
+    price_row = next(r for r in rows if r.kind == "product_price_changed")
+    assert price_row.payload["title"] == "Kingston Fury 16GB"
+    assert price_row.payload["from"] == "6350 ₽"
+    assert price_row.payload["to"] == "5990 ₽"
+
+
 async def test_pipeline_end_to_end(db, fake_fetch, monkeypatch) -> None:
     page = _make_competitor_with_page(db)
     _mock_llm_success(monkeypatch)
@@ -239,6 +286,7 @@ async def test_empty_html_creates_snapshot(db, fake_fetch) -> None:
         "headings": [],
         "links": [],
         "prices": [],
+        "products": [],
     }
 
 

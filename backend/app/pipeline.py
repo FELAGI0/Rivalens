@@ -125,12 +125,14 @@ async def _run_competitor_check_locked(competitor_id: UUID, db: Session) -> dict
         snapshots_created += 1
         new_snapshot_times.append(new_snap.fetched_at)
         logger.info(
-            "snapshot: page %s -> snapshot %s (%d headings, %d links, %d prices, hash=%s)",
+            "snapshot: page %s -> snapshot %s "
+            "(%d headings, %d links, %d prices, %d products, hash=%s)",
             page.id,
             new_snap.id,
             len(entities["headings"]),
             len(entities["links"]),
             len(entities["prices"]),
+            len(entities.get("products") or []),
             new_snap.content_hash[:12],
         )
 
