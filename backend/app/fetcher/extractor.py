@@ -2,6 +2,7 @@
 
 import json
 import re
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 
@@ -28,6 +29,39 @@ CARD_PRICE_SELECTORS = ("[class*='price']", ".price")
 
 MAX_PRODUCTS = 50
 MAX_PRODUCT_TITLE = 200
+
+
+def _is_funpay_url(url: str | None) -> bool:
+    if not url:
+        return False
+    hostname = (urlsplit(url).hostname or "").lower().rstrip(".")
+    return hostname == "funpay.com" or hostname.endswith(".funpay.com")
+
+
+def _funpay_products(html: str) -> list[dict]:
+    """Parse a FunPay lots page with the library's typed page parser."""
+    from funpayparsers.parsers.page_parsers.subcategory_page_parser import (
+        SubcategoryPageParser,
+    )
+
+    page = SubcategoryPageParser(html).parse()
+    products: list[dict] = []
+    for offer in page.offers or []:
+        title = str(offer.title or "").strip()[:MAX_PRODUCT_TITLE]
+        if not title:
+            continue
+        money = offer.price
+        value = getattr(money, "value", "")
+        character = getattr(money, "character", "₽")
+        price = f"{value:g} {character}" if isinstance(value, float) else f"{value} {character}"
+        products.append(
+            {
+                "title": title,
+                "price": price,
+                "url": f"https://funpay.com/lots/offer?id={offer.id}",
+            }
+        )
+    return products[:MAX_PRODUCTS]
 
 
 def _jsonld_price(data: dict) -> str:
@@ -145,7 +179,7 @@ def _extract_products(soup: BeautifulSoup) -> list[dict]:
     return products[:MAX_PRODUCTS]
 
 
-def extract_entities(html: str) -> dict:
+def extract_entities(html: str, url: str | None = None) -> dict:
     """Parse HTML into title, headings, links, prices and products.
 
     `prices` stays page-level (every price found on the page) for
@@ -171,6 +205,22 @@ def extract_entities(html: str) -> dict:
 
     text = soup.get_text(" ")
     prices = [m.group(0).strip() for m in PRICE_RE.finditer(text)]
+
+    if _is_funpay_url(url):
+        try:
+            products = _funpay_products(html)
+            if products:
+                return {
+                    "title": title,
+                    "headings": headings,
+                    "links": links,
+                    "prices": [],
+                    "products": products,
+                }
+        except Exception:
+            # Keep extraction available if an upstream FunPay markup change
+            # makes the specialized parser fail; generic parsing below remains.
+            pass
 
     return {
         "title": title,

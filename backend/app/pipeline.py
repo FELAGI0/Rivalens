@@ -114,7 +114,7 @@ async def _run_competitor_check_locked(competitor_id: UUID, db: Session) -> dict
             .limit(1)
         ).first()
 
-        entities = extract_entities(html)
+        entities = extract_entities(html, url=page.url)
         new_snap = PageSnapshot(
             page_id=page.id,
             content_hash=hash_html(html),

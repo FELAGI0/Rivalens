@@ -25,6 +25,7 @@ dependencies = [
     "email-validator>=2.0",
     "curl_cffi>=0.7",
     "aiosmtplib>=3.0",
+    "funpayparsers>=0.10",
 ]
 
 [project.optional-dependencies]
