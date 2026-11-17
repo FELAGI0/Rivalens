@@ -116,7 +116,7 @@ def diff_entities(a: dict, b: dict) -> list[dict]:
 
     if (a.get("products") or []) or (b.get("products") or []):
         changes.extend(diff_products(a, b))
-    else:
+    elif not a.get("prices_ignored") and not b.get("prices_ignored"):
         old_prices = set(a.get("prices") or [])
         new_prices = set(b.get("prices") or [])
         for value in sorted(new_prices - old_prices):

@@ -703,7 +703,11 @@ function CompetitorPageContent() {
             <h2 className="mb-4 text-sm font-medium uppercase text-fg-muted">
               История цен (за 30 дней)
             </h2>
-            {priceHistory &&
+            {detail.prices_ignored ? (
+              <p className="border-y border-line py-6 text-sm text-fg-muted">
+                Цены на этой странице не отслеживаются — это медиа-сайт.
+              </p>
+            ) : priceHistory &&
             (priceHistory.points.length > 0 ||
               priceHistory.changes.length > 0) ? (
               <>

@@ -59,6 +59,7 @@ export type CompetitorDetail = {
   total_checks: number;
   last_checked_at: string | null;
   next_check_at: string | null;
+  prices_ignored: boolean;
 };
 
 export type PricePoint = {

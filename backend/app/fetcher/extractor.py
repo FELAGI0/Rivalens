@@ -222,10 +222,15 @@ def extract_entities(html: str, url: str | None = None) -> dict:
             # makes the specialized parser fail; generic parsing below remains.
             pass
 
-    return {
+    products = _extract_products(soup)
+    prices_ignored = not products and len(prices) > 5 and not _jsonld_products(soup)
+    entities = {
         "title": title,
         "headings": headings,
         "links": links,
         "prices": prices,
-        "products": _extract_products(soup),
+        "products": products,
     }
+    if prices_ignored:
+        entities["prices_ignored"] = True
+    return entities

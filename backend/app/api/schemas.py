@@ -87,6 +87,7 @@ class CompetitorDetail(BaseModel):
     total_checks: int
     last_checked_at: datetime | None = None
     next_check_at: datetime | None = None
+    prices_ignored: bool = False
 
 
 class PricePoint(BaseModel):

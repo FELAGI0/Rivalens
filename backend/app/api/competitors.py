@@ -83,6 +83,22 @@ def _last_checked_at(
     )
 
 
+def _prices_ignored(db: Session, competitor_id: UUID) -> bool:
+    pages = db.scalars(
+        select(Page).where(Page.competitor_id == competitor_id)
+    ).all()
+    for page in pages:
+        latest = db.scalars(
+            select(PageSnapshot)
+            .where(PageSnapshot.page_id == page.id)
+            .order_by(PageSnapshot.fetched_at.desc(), PageSnapshot.id.desc())
+            .limit(1)
+        ).first()
+        if latest is not None and latest.entities.get("prices_ignored") is True:
+            return True
+    return False
+
+
 @router.post("", response_model=CompetitorOut, status_code=201)
 def create_competitor(
     payload: CompetitorCreate,
@@ -186,6 +202,7 @@ def get_competitor(
         total_checks=_snapshot_count(db, competitor_id),
         last_checked_at=_last_checked_at(db, competitor_id),
         next_check_at=_next_check_at(),
+        prices_ignored=_prices_ignored(db, competitor_id),
     )
 
 
